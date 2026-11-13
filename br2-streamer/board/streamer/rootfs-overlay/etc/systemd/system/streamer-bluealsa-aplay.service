@@ -1,0 +1,14 @@
+[Unit]
+Description=BlueALSA player -> JCally JM7MAX DAC
+ConditionPathIsDirectory=/sys/class/bluetooth
+Requires=streamer-bluealsa.service
+After=streamer-bluealsa.service sound.target
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=/usr/libexec/streamer/start-player bluetooth
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target bluetooth.target

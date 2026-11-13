@@ -1,0 +1,52 @@
+#!/bin/sh
+# Optional diagnostics. With debug=1 in /boot/streamer.txt, write /boot/streamer-log.txt
+# (readable on any computer) about 1 and 4 minutes after power-on. The Wi-Fi password is never logged.
+F=/boot/streamer.txt
+dbg=$(sed -n 's/^debug=//p' "$F" 2>/dev/null | head -n1 | tr -d '\r ')
+[ "$dbg" = 1 ] || exit 0
+PATH=/usr/sbin:/usr/bin:/sbin:/bin; export PATH
+
+report() {
+	echo "Streamer diagnostic log (debug=1 in streamer.txt)"
+	echo "uptime: $(cut -d' ' -f1 /proc/uptime) s   clock: $(date)"
+	tr -d '\0' < /proc/device-tree/model; echo
+	uname -r; cat /proc/cmdline
+	echo; echo "== settings (password hidden)"
+	sed 's/^psk=.*/psk=<hidden>/' "$F" | grep -v '^#' | grep -v '^[[:space:]]*$'
+	echo; echo "== network interfaces"; ip addr 2>&1
+	echo; echo "== wifi device"; iw dev 2>&1; iw dev wlan0 link 2>&1
+	echo; echo "== wifi state"; wpa_cli -p /run/wpa_supplicant -i wlan0 status 2>&1
+	echo; echo "== networks seen"; wpa_cli -p /run/wpa_supplicant -i wlan0 scan_results 2>&1 | head -n 40
+	echo; echo "== services"
+	for u in streamer-wifi systemd-networkd avahi-daemon sshd streamer-status nqptp shairport-sync librespot \
+		bluetooth bt-agent bt-select streamer-bluealsa streamer-bluealsa-aplay streamer-data; do
+		printf '%-26s %s\n' "$u" "$(systemctl is-active "$u" 2>/dev/null)"
+	done
+	echo; echo "== failed units"; systemctl --failed --no-legend --plain --no-pager 2>&1
+	echo; echo "== mounts"; grep -E ' (/|/var|/boot|/data) ' /proc/mounts
+	echo; echo "== usb devices"
+	for d in /sys/bus/usb/devices/*; do
+		[ -r "$d/product" ] && echo "$(cat "$d/idVendor"):$(cat "$d/idProduct") $(cat "$d/product")"
+	done
+	echo; echo "== sound cards"; cat /proc/asound/cards 2>&1
+	echo; echo "== bluetooth"; hciconfig -a 2>&1 | head -n 30
+	echo; echo "== modules"; lsmod 2>&1 | awk 'NR>1{printf "%s ", $1} END{print ""}'
+	echo; echo "== wifi/network journal"
+	journalctl -b --no-pager -o short-monotonic -u streamer-wifi -u systemd-networkd -u avahi-daemon 2>&1 | tail -n 70
+	echo; echo "== audio/bluetooth journal"
+	journalctl -b --no-pager -o short-monotonic -u shairport-sync -u librespot -u bluetooth -u bt-select -u bt-agent -u streamer-bluealsa 2>&1 | tail -n 40
+	echo; echo "== kernel log (selected)"
+	dmesg 2>&1 | grep -iE 'brcm|mmc1|cfg80211|ieee80211|wlan|usb [0-9]|bluetooth|firmware|error|fail|timeout|voltage' | tail -n 100
+}
+
+write() {
+	report > /run/streamer-log.txt 2>&1
+	mount -o remount,rw /boot || return 1
+	cp /run/streamer-log.txt /boot/streamer-log.txt
+	sync
+	mount -o remount,ro /boot
+}
+
+sleep "${1:-60}"; write
+sleep "${2:-180}"; write
+exit 0

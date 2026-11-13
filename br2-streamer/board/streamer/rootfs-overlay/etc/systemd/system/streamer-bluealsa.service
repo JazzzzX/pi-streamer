@@ -1,0 +1,15 @@
+[Unit]
+Description=BlueALSA - Bluetooth audio receiver (SBC, AAC, aptX, aptX HD)
+ConditionPathIsDirectory=/sys/class/bluetooth
+Requires=bluetooth.service dbus.service
+After=bluetooth.service dbus.service
+
+[Service]
+Type=dbus
+BusName=org.bluealsa
+ExecStart=/usr/bin/bluealsa -S -p a2dp-sink -c AAC -c aptX -c aptX-HD
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target bluetooth.target

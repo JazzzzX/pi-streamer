@@ -1,0 +1,85 @@
+#!/bin/sh
+# Pick the Bluetooth radio (bluetooth=auto|usb|builtin|off in streamer.txt; default auto),
+# block the others (rfkill), and make the chosen one discoverable as "Streamer".
+#
+# A USB dongle whose firmware download failed at power-on (seen with the TP-Link UB500:
+# "RTL: download fw command failed") stays dead until it is re-plugged. Such a radio is
+# re-probed, up to MAX_REPROBE times per boot; if it still does not come up, "auto"
+# falls back to the built-in radio.
+F=${STREAMER_TXT:-/boot/streamer.txt}
+SYS=${BT_SYSFS:-/sys/class/bluetooth}
+STATE=${BT_STATE:-/run/streamer-bt-reprobe}
+WAIT=${BT_WAIT:-8}
+MAX_REPROBE=3
+
+mode=$(sed -n 's/^bluetooth=//p' "$F" 2>/dev/null | head -n1 | tr -d '\r ')
+[ -n "$mode" ] || mode=auto
+
+# BlueZ lists a controller only after its firmware/setup has finished.
+usable() { busctl get-property org.bluez "/org/bluez/$1" org.bluez.Adapter1 Address >/dev/null 2>&1; }
+wait_usable() {
+	i=0
+	while [ "$i" -lt "$WAIT" ]; do
+		usable "$1" && return 0
+		sleep 1; i=$((i+1))
+	done
+	usable "$1"
+}
+
+usb=""; builtin=""; dead=""
+for h in "$SYS"/hci*; do
+	n=${h##*/}
+	case "$n" in hci[0-9]|hci[0-9][0-9]) ;; *) continue ;; esac
+	case "$(readlink -f "$h/device")" in
+		*usb*)
+			case "$mode" in
+				auto|usb) if wait_usable "$n"; then usb="$usb $n"; else dead="$dead $n"; fi ;;
+				*) usb="$usb $n" ;;
+			esac ;;
+		*) builtin="$builtin $n" ;;
+	esac
+done
+
+# Re-probe a dead dongle (same effect as unplugging and plugging it back in). The udev rule
+# runs this script again when the radio re-appears.
+if [ -n "$dead" ] && [ -z "$usb" ]; then
+	tries=$(cat "$STATE" 2>/dev/null || echo 0)
+	case "$tries" in ''|*[!0-9]*) tries=0 ;; esac
+	n=$(echo $dead | awk '{print $1}')
+	dev=$(readlink -f "$SYS/$n/device")       # USB interface, e.g. .../1-1.2/1-1.2:1.0
+	auth=${dev%/*}/authorized                 # its USB device
+	if [ "$tries" -lt "$MAX_REPROBE" ] && [ -w "$auth" ]; then
+		echo $((tries+1)) > "$STATE"
+		echo "bt-select: USB radio $n did not start (firmware not loaded); re-probing it, attempt $((tries+1)) of $MAX_REPROBE"
+		# Run outside this service: removing the radio makes udev restart bt-select, which
+		# would otherwise kill this script between the two steps and leave the dongle off.
+		systemd-run --quiet --collect /bin/sh -c "echo 0 > '$auth'; sleep 2; echo 1 > '$auth'" ||
+			echo "bt-select: could not start the re-probe"
+		exit 0
+	fi
+	echo "bt-select: USB radio $n is not usable after $tries re-probe(s)"
+fi
+
+case "$mode" in
+	usb) want="$usb" ;; builtin) want="$builtin" ;; off) want="" ;;
+	*) if [ -n "$usb" ]; then want="$usb"; else want="$builtin"; fi ;;
+esac
+want=$(echo $want | awk '{print $1}')
+for n in $usb $dead $builtin; do
+	v=1; [ "$n" = "$want" ] && v=0
+	for r in "$SYS/$n"/rfkill*/soft; do [ -e "$r" ] && echo $v > "$r"; done
+done
+echo "bt-select: mode=$mode usb=[$usb ] builtin=[$builtin ] not-ready=[$dead ] using=${want:-none}"
+[ -n "$want" ] || exit 0
+
+A=/org/bluez/$want
+wait_usable "$want" || { echo "bt-select: $want is not ready in BlueZ"; exit 0; }
+sp() { busctl set-property org.bluez "$A" org.bluez.Adapter1 "$@" || echo "bt-select: failed to set $1"; }
+for i in 1 2 3 4 5; do busctl set-property org.bluez "$A" org.bluez.Adapter1 Powered b true 2>/dev/null && break; sleep 1; done
+sp Alias s Streamer
+sp Pairable b true
+sp Discoverable b true
+addr=$(busctl get-property org.bluez "$A" org.bluez.Adapter1 Address 2>/dev/null | tr -d '"s ')
+disc=$(busctl get-property org.bluez "$A" org.bluez.Adapter1 Discoverable 2>/dev/null)
+case "$disc" in *true*) echo "bt-select: $want $addr powered and discoverable" ;; *) echo "bt-select: $want $addr NOT discoverable" ;; esac
+exit 0

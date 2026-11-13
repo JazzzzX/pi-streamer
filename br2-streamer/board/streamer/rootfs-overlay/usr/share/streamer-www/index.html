@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Streamer</title>
+<style>
+  :root { --bg:#111418; --card:#1b2027; --line:#2a313b; --fg:#e8ecf1; --dim:#8b95a3; --ok:#3ecf8e; --warn:#f5a524; --bad:#f2555a; --acc:#5aa9ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { padding:18px 20px 6px; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  h1 { margin:0; font-size:22px; }
+  .sub { color:var(--dim); font-size:13px; }
+  main { display:grid; grid-template-columns:repeat(auto-fit, minmax(270px, 1fr)); gap:14px; padding:14px 20px 24px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  .card h2 { margin:0 0 10px; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); font-weight:600; }
+  .big { font-size:28px; font-weight:650; }
+  .row { display:flex; justify-content:space-between; gap:10px; padding:4px 0; border-top:1px solid var(--line); }
+  .row:first-of-type { border-top:0; }
+  .k { color:var(--dim); }
+  .v { text-align:right; font-variant-numeric:tabular-nums; }
+  .pill { display:inline-block; padding:1px 9px; border-radius:999px; font-size:12px; font-weight:600; }
+  .ok { background:rgba(62,207,142,.15); color:var(--ok); }
+  .warn { background:rgba(245,165,36,.15); color:var(--warn); }
+  .bad { background:rgba(242,85,90,.15); color:var(--bad); }
+  .idle { background:rgba(139,149,163,.15); color:var(--dim); }
+  .src-AirPlay { color:var(--acc); } .src-Spotify { color:#1ed760; } .src-Bluetooth { color:#8f8bff; } .src-Idle { color:var(--dim); }
+  footer { color:var(--dim); font-size:12px; padding:0 20px 20px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="host">Streamer</h1>
+  <span class="sub" id="meta">connecting…</span>
+</header>
+<main>
+  <section class="card">
+    <h2>Now playing</h2>
+    <div class="big" id="src">–</div>
+    <div class="row"><span class="k">DAC</span><span class="v" id="dac">–</span></div>
+    <div class="row"><span class="k">Output format</span><span class="v" id="fmt">–</span></div>
+    <div class="row"><span class="k">Volume</span><span class="v" id="vol">–</span></div>
+    <div class="row"><span class="k">Stream</span><span class="v" id="stream">–</span></div>
+  </section>
+  <section class="card">
+    <h2>Bluetooth</h2>
+    <div class="row"><span class="k">Radio</span><span class="v" id="btad">–</span></div>
+    <div class="row"><span class="k">Device</span><span class="v" id="btdev">–</span></div>
+    <div class="row"><span class="k">Codec</span><span class="v" id="btcodec">–</span></div>
+    <div class="row"><span class="k">Format</span><span class="v" id="btfmt">–</span></div>
+    <div class="row"><span class="k">Bluetooth RX (incl. overhead)</span><span class="v" id="btkbps">–</span></div>
+  </section>
+  <section class="card">
+    <h2>Wi-Fi</h2>
+    <div class="row"><span class="k">Network</span><span class="v" id="ssid">–</span></div>
+    <div class="row"><span class="k">Signal</span><span class="v" id="sig">–</span></div>
+    <div class="row"><span class="k">Link speed</span><span class="v" id="txb">–</span></div>
+    <div class="row"><span class="k">Data in</span><span class="v" id="wlk">–</span></div>
+    <div class="row"><span class="k">IP / power save</span><span class="v" id="ip">–</span></div>
+  </section>
+  <section class="card">
+    <h2>System</h2>
+    <div class="row"><span class="k">CPU / load</span><span class="v" id="cpu">–</span></div>
+    <div class="row"><span class="k">Memory</span><span class="v" id="mem">–</span></div>
+    <div class="row"><span class="k">Temperature</span><span class="v" id="temp">–</span></div>
+    <div class="row"><span class="k">Power</span><span class="v" id="pwr">–</span></div>
+    <div class="row"><span class="k">SD card</span><span class="v" id="ro">–</span></div>
+  </section>
+  <section class="card">
+    <h2>Services</h2>
+    <div id="svc"></div>
+  </section>
+</main>
+<footer>Refreshes every 5 s while visible. Rates include protocol overhead and other traffic; they do not prove lossless audio. DAC format is not the source bit depth. System is read-only; pairings and Spotify credentials use a small writable data partition.</footer>
+<script>
+const $ = id => document.getElementById(id);
+const pill = (t, c) => `<span class="pill ${c}">${t}</span>`;
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtName = f => ({S16_LE:'16-bit', S24_LE:'24-bit', S24_3LE:'24-bit', S32_LE:'32-bit'}[f] || f || '');
+const khz = r => r ? (r/1000).toString().replace(/\.0$/,'') + ' kHz' : '';
+const kbps = v => (v === null || v === undefined) ? '–' : `${v} kbps`;
+
+function throttled(t) {
+  if (!t) return pill('n/a', 'idle');
+  const v = parseInt(t, 16);
+  if (v & 0x1) return pill('under-voltage now', 'bad');
+  if (v & 0x4) return pill('throttled now', 'bad');
+  if (v & 0x50000) return pill('OK (earlier dip)', 'warn');
+  return pill('OK', 'ok');
+}
+
+function render(d) {
+  $('host').textContent = d.host ? d.host.charAt(0).toUpperCase() + d.host.slice(1) : 'Streamer';
+  $('meta').textContent = `up ${d.uptime} · updated ${new Date().toLocaleTimeString()}`;
+  const src = $('src'); src.textContent = d.source; src.className = 'big src-' + d.source;
+
+  const dac = d.dac;
+  $('dac').innerHTML = !dac.present ? pill('not connected', 'bad')
+    : dac.state === 'RUNNING' ? pill('playing', 'ok') : pill(dac.state.toLowerCase(), 'idle');
+  $('fmt').textContent = dac.present && dac.state === 'RUNNING' ? `${fmtName(dac.format)} / ${khz(dac.rate)}` : '–';
+  $('vol').textContent = dac.volume !== null ? `${dac.volume}%${dac.volume_db !== null ? ` (${dac.volume_db} dB)` : ''}` : '–';
+
+  let stream = '–';
+  if (d.source === 'AirPlay') stream = `${kbps(d.airplay.wifi_kbps)} · ${d.airplay.estimate || ''}`;
+  else if (d.source === 'Spotify') stream = `Configured: up to 320 kbps · Wi-Fi RX ${kbps(d.airplay.wifi_kbps)}`;
+  else if (d.source === 'Bluetooth') stream = `${d.bluetooth.codec} · ${kbps(d.bluetooth.air_kbps)}`;
+  $('stream').textContent = stream;
+
+  const bt = d.bluetooth;
+  $('btad').innerHTML = bt.adapter ? `${bt.bus === 'usb' ? 'USB dongle' : 'Built-in'} <span class="k">${esc(bt.address)}</span>` : pill('off', 'idle');
+  $('btdev').innerHTML = bt.device ? `${esc(bt.device)} ${bt.running ? pill('streaming', 'ok') : pill('connected', 'idle')}` : '–';
+  $('btcodec').textContent = bt.codec || '–';
+  $('btfmt').textContent = bt.codec ? `${fmtName(bt.format)} / ${khz(bt.sampling)}` : '–';
+  $('btkbps').textContent = bt.running ? `${kbps(bt.air_kbps)}${bt.nominal_kbps ? ` (codec ${bt.nominal_kbps})` : ''}` : '–';
+
+  const w = d.wifi;
+  $('ssid').textContent = w.ssid || '–';
+  const s = w.signal_dbm;
+  $('sig').innerHTML = s === null ? '–' : `${s} dBm ` + (s >= -60 ? pill('good', 'ok') : s >= -70 ? pill('fair', 'warn') : pill('weak', 'bad'));
+  $('txb').textContent = w.tx_mbit !== null ? `${w.tx_mbit} Mbit/s · ${(w.freq_mhz/1000).toFixed(1)} GHz` : '–';
+  $('wlk').textContent = kbps(d.airplay.wifi_kbps);
+  $('ip').innerHTML = `${esc(w.ip || '–')} · ${w.power_save === 'off' ? pill('PS off', 'ok') : pill('PS ' + (w.power_save || '?'), 'warn')}`;
+
+  const y = d.system;
+  $('cpu').textContent = `${y.cpu_pct ?? '–'}% · ${y.load}`;
+  $('mem').textContent = `${y.mem_used_mb} / ${y.mem_total_mb} MB`;
+  $('temp').innerHTML = y.temp_c === null ? '–' : `${y.temp_c} °C ` + (y.temp_c < 70 ? pill('OK', 'ok') : y.temp_c < 80 ? pill('warm', 'warn') : pill('hot', 'bad'));
+  $('pwr').innerHTML = throttled(y.throttled);
+  $('ro').innerHTML = y.read_only ? pill('read-only', 'ok') : pill('writable', 'warn');
+
+  $('svc').innerHTML = Object.entries(d.services).map(([n, st]) =>
+    `<div class="row"><span class="k">${esc(n.replace(/\.service$/, ''))}</span><span class="v">${pill(st, st === 'active' ? 'ok' : st === 'inactive' ? 'idle' : 'bad')}</span></div>`).join('');
+}
+
+let timer = null, fetching = false;
+async function tick() {
+  if (fetching) return;
+  fetching = true;
+  try {
+    const r = await fetch('/cgi-bin/status', {cache: 'no-store'});
+    if (!r.ok) throw new Error(r.status);
+    render(await r.json());
+  } catch (e) { $('meta').textContent = 'offline – retrying…'; }
+  finally { fetching = false; }
+}
+function start() { if (!timer) { tick(); timer = setInterval(tick, 5000); } }
+function stop() { clearInterval(timer); timer = null; }
+document.addEventListener('visibilitychange', () => document.hidden ? stop() : start());
+start();
+</script>
+</body>
+</html>

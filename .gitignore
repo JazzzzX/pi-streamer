@@ -1,0 +1,15 @@
+# Flashable images: large, and rebuilt from these sources
+*.img
+*.img.xz
+output/previous/
+output/*.log
+
+# SSH host keys and the authorized key baked into the image: never commit
+secrets/
+
+# One-off helper from the first build, superseded by build-updated.sh
+followup.sh
+followup.out
+
+.DS_Store
+__pycache__/

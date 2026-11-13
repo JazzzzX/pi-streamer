@@ -1,0 +1,175 @@
+#!/bin/sh
+# Streamer status (JSON) for the status page. Read-only.
+# Written to fork as few processes as possible: it runs every few seconds while the page is open.
+export LC_ALL=C PATH=/usr/libexec/streamer:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CARD=JM7MAX
+ST=/run/streamer-web
+
+# ---- output helpers (no forks unless a value needs escaping)
+q() {
+	printf '"'
+	printf '%s' "$1" | awk 'BEGIN { ORS="" } {
+		if (NR>1) printf "\\n"
+		for (i=1; i<=length($0); i++) {
+			c=substr($0,i,1)
+			if (c=="\\" || c=="\"") printf "\\%s",c
+			else if (c=="\t") printf "\\t"
+			else if (c=="\r") printf "\\r"
+			else if (c ~ /[[:cntrl:]]/) printf "?"
+			else printf "%s",c
+		}
+	}'
+	printf '"'
+}
+n() { case "$1" in ''|*[!0-9.-]*) printf 'null' ;; *) printf '%s' "$1" ;; esac; }
+b() { [ "$1" = true ] && printf true || printf false; }
+kv() { printf '"%s":' "$1"; }          # key
+sval() { kv "$1"; q "$2"; }            # "key":"string"
+nval() { kv "$1"; n "$2"; }            # "key":number|null
+bval() { kv "$1"; b "$2"; }            # "key":true|false
+
+# ---- time (centiseconds) and previous sample for rates
+read -r up _ < /proc/uptime
+now=$(( ${up%.*} * 100 ))
+p_ts=""; p_wl=""; p_bt=""; p_ct=""; p_ci=""
+[ -r "$ST/prev" ] && read -r p_ts p_wl p_bt p_ct p_ci < "$ST/prev"
+
+read -r wl_rx < /sys/class/net/wlan0/statistics/rx_bytes 2>/dev/null || wl_rx=0
+read -r _ c1 c2 c3 c4 c5 c6 c7 c8 _ < /proc/stat
+ct=$((c1+c2+c3+c4+c5+c6+c7+c8)); ci=$((c4+c5))
+
+# ---- Bluetooth radio in use (the one not rfkill-blocked)
+bt_hci=""; bt_bus=""; bt_rx=0; bt_addr=""
+for h in /sys/class/bluetooth/hci[0-9] /sys/class/bluetooth/hci[0-9][0-9]; do
+	[ -e "$h" ] || continue
+	soft=0; for r in "$h"/rfkill*/soft; do [ -r "$r" ] && read -r soft < "$r"; done
+	[ "$soft" = 1 ] && continue
+	bt_hci=${h##*/}
+	dev=$(readlink -f "$h/device"); case "$dev" in *usb*) bt_bus=usb ;; *) bt_bus=builtin ;; esac
+done
+if [ -n "$bt_hci" ] && command -v hciconfig >/dev/null 2>&1; then
+	while read -r a b2 c d _; do
+		case "$a" in BD) bt_addr=$c ;; RX) bt_rx=${b2#bytes:} ;; esac
+	done <<EOF_HCI
+$(hciconfig "$bt_hci" 2>/dev/null)
+EOF_HCI
+fi
+
+[ -d "$ST" ] && echo "$now $wl_rx $bt_rx $ct $ci" > "$ST/prev"
+
+rate() { # bytes_now bytes_prev -> kbps (integer) or null
+	if [ -n "$2" ] && [ -n "$p_ts" ] && [ "$now" -gt "$p_ts" ] && [ "$1" -ge "$2" ]; then
+		echo $(( ($1-$2) * 8 * 100 / (now-p_ts) / 1000 ))
+	else echo null; fi
+}
+wl_kbps=$(rate "$wl_rx" "$p_wl"); bt_kbps=$(rate "$bt_rx" "$p_bt")
+cpu=null; [ -n "$p_ct" ] && [ "$ct" -gt "$p_ct" ] && cpu=$(( 100 - 100*(ci-p_ci)/(ct-p_ct) ))
+
+# ---- DAC (/proc/asound) and who is using it
+dac_present=false; dac_state=CLOSED; dac_rate=""; dac_fmt=""; owner=""; mixer=""; vol=""; voldb=""
+S=/proc/asound/$CARD/pcm0p/sub0
+if [ -e /proc/asound/$CARD ]; then
+	dac_present=true
+	opid=""
+	while read -r k v1 v2 _; do case "$k" in state:) dac_state=$v1 ;; owner_pid) opid=$v2 ;; esac; done < $S/status 2>/dev/null
+	while read -r k v1 _; do case "$k" in rate:) dac_rate=$v1 ;; format:) dac_fmt=$v1 ;; esac; done < $S/hw_params 2>/dev/null
+	if [ -n "$opid" ]; then   # owner_pid can be a thread id: map it to its process
+		tg=$opid; while read -r k v1 _; do [ "$k" = Tgid: ] && tg=$v1; done < /proc/$opid/status 2>/dev/null
+		read -r owner < /proc/$tg/comm 2>/dev/null
+	fi
+	mixer=$(dac-mixer 2>/dev/null)
+	if [ -n "$mixer" ]; then
+		while IFS= read -r l; do
+			case "$l" in *Playback*\[*%\]*)
+				vol=${l#*[}; vol=${vol%%%]*}
+				case "$l" in *dB\]*) voldb=${l%dB]*}; voldb=${voldb##*[} ;; esac
+				break ;;
+			esac
+		done <<EOF_MIX
+$(amixer -c $CARD sget "$mixer" 2>/dev/null)
+EOF_MIX
+	fi
+fi
+case "$owner" in
+	shairport-sync) src=AirPlay ;; librespot) src=Spotify ;; bluealsa-aplay) src=Bluetooth ;;
+	'') src=Idle ;; *) src=$owner ;;
+esac
+
+# ---- Bluetooth stream (bluealsa): prefer the running one
+bt_dev=""; bt_codec=""; bt_fmt=""; bt_sr=""; bt_run=false; bt_path=""
+for p in $(bluealsa-cli list-pcms 2>/dev/null); do
+	r=""; c=""; f=""; s=""
+	while IFS= read -r l; do
+		case "$l" in
+			"Running: "*) r=${l#Running: } ;;
+			"Selected codec: "*) c=${l#Selected codec: } ;;
+			"Format: "*) f=${l#Format: } ;;
+			"Sampling: "*) s=${l#Sampling: }; s=${s%% *} ;;
+		esac
+	done <<EOF_BA
+$(bluealsa-cli info "$p" 2>/dev/null)
+EOF_BA
+	if [ -z "$bt_codec" ] || [ "$r" = true ]; then
+		bt_codec=$c; bt_fmt=$f; bt_sr=$s; bt_path=$p; [ "$r" = true ] && bt_run=true
+	fi
+done
+if [ -n "$bt_path" ]; then   # /org/bluealsa/hciX/dev_AA_BB_.../a2dpsnk/source -> device name
+	d=${bt_path#*/dev_}; d=${d%%/*}; hci=${bt_path#/org/bluealsa/}; hci=${hci%%/*}
+	bt_dev=$(busctl get-property org.bluez /org/bluez/$hci/dev_$d org.bluez.Device1 Alias 2>/dev/null)
+	bt_dev=${bt_dev#s \"}; bt_dev=${bt_dev%\"}
+fi
+case "$bt_codec:$bt_sr" in
+	aptX-HD:48000) bt_nom=576 ;; aptX-HD:44100) bt_nom=529 ;;
+	aptX:48000) bt_nom=384 ;; aptX:44100) bt_nom=352 ;;
+	*) bt_nom="" ;; # SBC/AAC rates vary; do not guess a bitrate
+esac
+
+# Wi-Fi counters include other traffic and cannot establish the codec or bit depth.
+ap_note="Codec not verified (network traffic only)"
+
+# ---- Wi-Fi
+ssid=""; sig=""; txb=""; freq=""
+while IFS= read -r l; do
+	l=${l#"${l%%[! 	]*}"}
+	case "$l" in
+		"SSID: "*) ssid=${l#SSID: } ;;
+		"signal: "*) sig=${l#signal: }; sig=${sig%% *} ;;
+		"tx bitrate: "*) txb=${l#tx bitrate: }; txb=${txb%% *} ;;
+		"freq: "*) freq=${l#freq: }; freq=${freq%%.*} ;;
+	esac
+done <<EOF_IW
+$(iw dev wlan0 link 2>/dev/null)
+EOF_IW
+ps=$(iw dev wlan0 get power_save 2>/dev/null); ps=${ps##* }
+ip=""; set -- $(ip -4 -o addr show wlan0 2>/dev/null); [ -n "$4" ] && ip=${4%/*}
+
+# ---- System
+temp=""; if read -r t < /sys/class/thermal/thermal_zone0/temp 2>/dev/null; then temp=$((t/1000)).$(( (t%1000)/100 )); fi
+mt=0; ma=0
+while read -r k v _; do case "$k" in MemTotal:) mt=$((v/1024)) ;; MemAvailable:) ma=$((v/1024)) ;; esac; done < /proc/meminfo
+thr=""; command -v vcgencmd >/dev/null 2>&1 && { thr=$(vcgencmd get_throttled 2>/dev/null); thr=${thr#*=}; }
+read -r l1 l2 l3 _ < /proc/loadavg
+ro=false; for w in $(cat /proc/cmdline); do case "$w" in ro|overlayroot=tmpfs) ro=true ;; esac; done
+s=${up%.*}; d=$((s/86400)); h=$((s%86400/3600)); m=$((s%3600/60))
+[ $d -gt 0 ] && uptime="${d}d ${h}h ${m}m" || uptime="${h}h ${m}m"
+read -r host < /etc/hostname
+
+# ---- JSON
+printf 'Content-Type: application/json\r\nCache-Control: no-store\r\n\r\n{'
+sval host "$host"; printf ','; sval uptime "$uptime"; printf ','; sval source "$src"; printf ','
+kv dac; printf '{'; bval present $dac_present; printf ','; sval state "$dac_state"; printf ','; nval rate "$dac_rate"; printf ','
+	sval format "$dac_fmt"; printf ','; sval mixer "$mixer"; printf ','; nval volume "$vol"; printf ','; nval volume_db "$voldb"; printf '},'
+kv airplay; printf '{'; nval wifi_kbps "$wl_kbps"; printf ','; sval estimate "$ap_note"; printf '},'
+kv bluetooth; printf '{'; sval adapter "$bt_hci"; printf ','; sval bus "$bt_bus"; printf ','; sval address "$bt_addr"; printf ','
+	sval device "$bt_dev"; printf ','; sval codec "$bt_codec"; printf ','; sval format "$bt_fmt"; printf ','; nval sampling "$bt_sr"; printf ','
+	bval running $bt_run; printf ','; nval nominal_kbps "$bt_nom"; printf ','; nval air_kbps "$bt_kbps"; printf '},'
+kv wifi; printf '{'; sval ssid "$ssid"; printf ','; nval signal_dbm "$sig"; printf ','; nval tx_mbit "$txb"; printf ','
+	nval freq_mhz "$freq"; printf ','; sval ip "$ip"; printf ','; sval power_save "$ps"; printf '},'
+kv system; printf '{'; nval cpu_pct "$cpu"; printf ','; sval load "$l1 $l2 $l3"; printf ','; nval mem_used_mb "$((mt-ma))"; printf ','
+	nval mem_total_mb "$mt"; printf ','; nval temp_c "$temp"; printf ','; sval throttled "$thr"; printf ','; bval read_only $ro; printf '},'
+kv services; printf '{'
+systemctl show -p Id -p LoadState -p ActiveState \
+	nqptp shairport-sync raspotify librespot bluetooth bluealsa bluealsa-aplay \
+	streamer-bluealsa streamer-bluealsa-aplay bt-agent bt-select streamer-wifi streamer-status 2>/dev/null |
+	awk -F= '/^Id=/{id=$2} /^LoadState=/{ls=$2} /^ActiveState=/{ if (ls!="not-found" && ls!="masked") { printf "%s\"%s\":\"%s\"", sep, id, $2; sep="," } }'
+printf '}}\n'

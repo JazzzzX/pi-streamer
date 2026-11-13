@@ -1,0 +1,13 @@
+# Streamer (Pi Zero 2 W, 64-bit). Bluetooth stays on the full UART (no miniuart-bt).
+start_file=start_cd.elf
+fixup_file=fixup_cd.dat
+kernel=Image
+arm_64bit=1
+gpu_mem=16
+disable_overscan=1
+disable_splash=1
+boot_delay=0
+dtparam=audio=off
+camera_auto_detect=0
+display_auto_detect=0
+# Bluetooth radio choice (USB dongle vs built-in) is set in streamer.txt, not here.

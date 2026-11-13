@@ -1,0 +1,39 @@
+#!/bin/sh
+# Start one player on the JM7MAX DAC. Uses the DAC's own volume control when it has
+# one (PCM/Headset); otherwise the player adjusts volume in software.
+set -eu
+[ -e /proc/asound/JM7MAX ] || exit 1   # DAC not plugged in: systemd retries every 5 s
+mixer=$(/usr/libexec/streamer/dac-mixer) || { sleep 2; mixer=$(/usr/libexec/streamer/dac-mixer) || mixer=""; }
+case "$1" in
+  airplay)
+    if [ -n "$mixer" ]; then
+      sed "s/@MIXER@/$mixer/" /etc/shairport-sync.conf > /run/streamer-airplay/shairport-sync.conf
+    else
+      grep -v '@MIXER@' /etc/shairport-sync.conf > /run/streamer-airplay/shairport-sync.conf
+    fi
+    exec /usr/bin/shairport-sync -c /run/streamer-airplay/shairport-sync.conf
+    ;;
+  spotify)
+    # Credentials cache lives on /data; fall back to RAM if that partition is unavailable.
+    cache=/data/librespot
+    [ -d "$cache" ] && [ -w "$cache" ] || { cache=/run/streamer-librespot; mkdir -p "$cache"; }
+    if [ -n "$mixer" ]; then
+      set -- --mixer alsa --alsa-mixer-device hw:CARD=JM7MAX --alsa-mixer-control "$mixer"
+    else
+      set -- --mixer softvol
+    fi
+    exec /usr/bin/librespot --name Streamer --device-type speaker --bitrate 320 \
+      --backend alsa --device hw:CARD=JM7MAX "$@" \
+      --cache "$cache" --disable-audio-cache
+    ;;
+  bluetooth)
+    if [ -n "$mixer" ]; then
+      set -- --mixer-device=hw:CARD=JM7MAX --mixer-name="$mixer" --volume=mixer
+    else
+      set -- --volume=software
+    fi
+    exec /usr/bin/bluealsa-aplay -S --profile-a2dp --pcm=plughw:CARD=JM7MAX "$@" \
+      --pcm-buffer-time=200000 --pcm-period-time=50000
+    ;;
+  *) exit 2 ;;
+esac

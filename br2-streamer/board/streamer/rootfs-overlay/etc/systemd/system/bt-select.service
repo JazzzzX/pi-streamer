@@ -1,0 +1,14 @@
+[Unit]
+Description=Choose Bluetooth radio (streamer.txt) and make Streamer discoverable
+ConditionPathIsDirectory=/sys/class/bluetooth
+Requires=bluetooth.service
+After=bluetooth.service bt-agent.service
+RequiresMountsFor=/boot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/streamer/bt-select
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target bluetooth.target

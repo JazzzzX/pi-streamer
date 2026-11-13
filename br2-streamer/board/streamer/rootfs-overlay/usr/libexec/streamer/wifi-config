@@ -1,0 +1,16 @@
+#!/bin/sh
+# Build /run/streamer/wpa_supplicant.conf from /boot/streamer.txt (FAT boot partition, editable on any computer).
+set -e
+F=/boot/streamer.txt
+get() { sed -n "s/^$1=//p" "$F" | head -n1 | tr -d '\r'; }
+ssid=$(get ssid); psk=$(get psk); country=$(get country)
+[ -n "$country" ] || country=IN
+mkdir -p /run/streamer
+umask 077
+{
+  echo "ctrl_interface=/run/wpa_supplicant"
+  echo "country=$country"
+  echo "update_config=0"
+  wpa_passphrase "$ssid" "$psk" | grep -v '^\s*#psk='
+} > /run/streamer/wpa_supplicant.conf
+iw reg set "$country" 2>/dev/null || true

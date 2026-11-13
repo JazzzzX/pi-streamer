@@ -1,0 +1,19 @@
+test_boot_configuration (__main__.StreamerTests.test_boot_configuration) ... ok
+test_dead_usb_radio_is_reprobed_then_falls_back (__main__.StreamerTests.test_dead_usb_radio_is_reprobed_then_falls_back)
+The UB500 failure seen on the Pi: hci1 exists but its firmware never loaded, so BlueZ does not list it. ... ok
+test_debug_log_is_opt_in_and_hides_password (__main__.StreamerTests.test_debug_log_is_opt_in_and_hides_password) ... ok
+test_json_escaping (__main__.StreamerTests.test_json_escaping) ... ok
+test_mixer_detection (__main__.StreamerTests.test_mixer_detection) ... ok
+test_players_fall_back_to_software_volume (__main__.StreamerTests.test_players_fall_back_to_software_volume) ... ok
+test_players_wait_for_dac (__main__.StreamerTests.test_players_wait_for_dac) ... ok
+test_players_with_hardware_mixer (__main__.StreamerTests.test_players_with_hardware_mixer) ... ok
+test_radio_policy (__main__.StreamerTests.test_radio_policy) ... ok
+test_script_syntax (__main__.StreamerTests.test_script_syntax) ... ok
+test_status_page_makes_no_lossless_claims (__main__.StreamerTests.test_status_page_makes_no_lossless_claims) ... ok
+test_units (__main__.StreamerTests.test_units) ... ok
+test_wifi_config_generation (__main__.StreamerTests.test_wifi_config_generation) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 6.399s
+
+OK

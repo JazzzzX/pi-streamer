@@ -1,0 +1,11 @@
+[Unit]
+Description=NQPTP - timing companion for AirPlay 2
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/nqptp
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

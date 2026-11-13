@@ -1,0 +1,9 @@
+systemd unit verification: PASS (11 units)
+rootfs: 5916/32768 files (0.2% non-contiguous), 45717/131072 blocks
+data: 12/16384 files (0.0% non-contiguous), 9545/65536 blocks
+== boot partition
+::/bcm2710-rpi-zero-2-w.dtb ::/bootcode.bin ::/cmdline.txt ::/config.txt ::/fixup_cd.dat ::/overlays/ ::/start_cd.elf ::/Image ::/streamer.txt 
+root=/dev/mmcblk0p2 rootfstype=ext4 rootwait ro console=tty1 net.ifnames=0 cfg80211.ieee80211_regdom=IN brcmfmac.feature_disable=0x82000
+ssid=YOUR_WIFI_NAME psk=YOUR_WIFI_PASSWORD country=IN bluetooth=auto debug=0 
+== rootfs use
+158M

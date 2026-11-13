@@ -1,0 +1,18 @@
+# Streamer settings. Edit on your Mac (drive "STREAMER"), save, eject.
+# Applied on next power-on. Lines starting with # are ignored.
+
+# Wi-Fi (2.4 GHz only). No quotes. country: IN, US, GB...
+ssid=YOUR_WIFI_NAME
+psk=YOUR_WIFI_PASSWORD
+country=IN
+
+# Bluetooth radio:
+#   auto    = USB dongle if plugged in, else built-in (default)
+#   usb     = USB dongle only
+#   builtin = built-in only
+#   off     = no Bluetooth
+bluetooth=auto
+
+# Troubleshooting: 1 = save a report as streamer-log.txt on this drive
+# 1 and 4 minutes after power-on (wait 5 minutes before unplugging). 0 = off.
+debug=0

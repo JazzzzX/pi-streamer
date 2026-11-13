@@ -1,0 +1,13 @@
+[Unit]
+Description=Create Streamer directories on the writable /data partition
+RequiresMountsFor=/data
+Before=bluetooth.service librespot.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/mkdir -p /data/bluetooth /data/librespot
+ExecStart=/bin/chmod 0700 /data/bluetooth /data/librespot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

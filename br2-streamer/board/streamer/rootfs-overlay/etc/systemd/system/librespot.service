@@ -1,0 +1,13 @@
+[Unit]
+Description=librespot - Spotify Connect receiver (Streamer)
+Wants=network-online.target time-sync.target streamer-data.service avahi-daemon.service
+After=network-online.target time-sync.target sound.target streamer-data.service avahi-daemon.service
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=/usr/libexec/streamer/start-player spotify
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

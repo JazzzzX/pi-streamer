@@ -1,0 +1,7 @@
+CONFIG_HTTPD=y
+CONFIG_FEATURE_HTTPD_CGI=y
+# BusyBox 1.38.0 restores directory index paths only with BASIC_AUTH enabled.
+# No credentials are configured; this works around a root-URL 404 in CGI builds.
+CONFIG_FEATURE_HTTPD_BASIC_AUTH=y
+CONFIG_FEATURE_HTTPD_CONFIG_WITH_SCRIPT_INTERPR=y
+CONFIG_TIMEOUT=y

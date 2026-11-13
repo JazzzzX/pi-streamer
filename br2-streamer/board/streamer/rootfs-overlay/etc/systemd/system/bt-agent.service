@@ -1,0 +1,13 @@
+[Unit]
+Description=Bluetooth pairing agent (no PIN, auto-accept)
+ConditionPathIsDirectory=/sys/class/bluetooth
+Requires=bluetooth.service
+After=bluetooth.service
+
+[Service]
+ExecStart=/usr/bin/bt-agent -c NoInputNoOutput
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target bluetooth.target

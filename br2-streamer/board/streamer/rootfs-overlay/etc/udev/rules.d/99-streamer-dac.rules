@@ -1,0 +1,4 @@
+# Streamer: when the JCally JM7MAX USB DAC is ready, (re)start the players on it
+ACTION=="change", SUBSYSTEM=="sound", KERNEL=="card*", ENV{SOUND_INITIALIZED}=="1", ENV{ID_VENDOR_ID}=="06cb", ENV{ID_MODEL_ID}=="1595", RUN+="/usr/libexec/streamer/dac-ready"
+# Streamer: when a Bluetooth adapter is plugged in or removed (e.g. the UB500), re-pick the radio
+ACTION=="add|remove", SUBSYSTEM=="bluetooth", KERNEL=="hci[0-9]*", ENV{DEVTYPE}=="host", RUN+="/usr/bin/systemctl --no-block restart bt-select.service"

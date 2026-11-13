@@ -1,0 +1,23 @@
+[Unit]
+Description=Streamer read-only status page
+After=network.target
+
+[Service]
+User=streamer-web
+Group=streamer-web
+SupplementaryGroups=audio video
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+Nice=10
+IOSchedulingClass=idle
+RuntimeDirectory=streamer-web
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ExecStart=/bin/busybox httpd -f -p 80 -h /usr/share/streamer-www
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,5 @@
+-ZSTD +XZ +ZLIB +OPENSSL
+Native ARM64 compressed module decode: brcmfmac PASS
+Native ARM64 compressed module decode: snd-usb-audio PASS
+Native ARM64 compressed module decode: btusb PASS
+Native ARM64 compressed module decode: hci_uart PASS

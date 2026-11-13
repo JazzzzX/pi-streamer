@@ -1,0 +1,15 @@
+config BR2_PACKAGE_LIBRESPOT
+	bool "librespot"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	select BR2_PACKAGE_HOST_RUSTC
+	select BR2_PACKAGE_ALSA_LIB
+	select BR2_PACKAGE_OPENSSL
+	select BR2_PACKAGE_CA_CERTIFICATES
+	select BR2_PACKAGE_AVAHI # runtime
+	select BR2_PACKAGE_AVAHI_DAEMON # runtime
+	select BR2_PACKAGE_DBUS # runtime
+	help
+	  Open source Spotify Connect client (ALSA backend, discovery
+	  through the Avahi daemon, OpenSSL TLS).
+
+	  https://github.com/librespot-org/librespot

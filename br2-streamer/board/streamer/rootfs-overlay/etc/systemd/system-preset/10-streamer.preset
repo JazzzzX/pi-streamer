@@ -1,0 +1,4 @@
+# The packaged D-Bus wpa_supplicant unit cannot run here (no D-Bus support built in);
+# Wi-Fi is handled by streamer-wifi.service.
+disable wpa_supplicant.service
+disable avahi-dnsconfd.service

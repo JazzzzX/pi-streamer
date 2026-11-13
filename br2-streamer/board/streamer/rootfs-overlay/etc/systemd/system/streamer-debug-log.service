@@ -1,0 +1,10 @@
+[Unit]
+Description=Streamer diagnostic log (only when debug=1 in streamer.txt)
+RequiresMountsFor=/boot
+
+[Service]
+ExecStart=/usr/libexec/streamer/debug-log
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

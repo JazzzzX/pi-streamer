@@ -1,0 +1,17 @@
+[Unit]
+Description=Streamer Wi-Fi (settings from /boot/streamer.txt)
+BindsTo=sys-subsystem-net-devices-wlan0.device
+After=sys-subsystem-net-devices-wlan0.device
+RequiresMountsFor=/boot
+Before=network.target
+Wants=network.target
+
+[Service]
+ExecStartPre=/usr/libexec/streamer/wifi-config
+ExecStart=/usr/sbin/wpa_supplicant -i wlan0 -D nl80211 -c /run/streamer/wpa_supplicant.conf
+ExecStartPost=-/usr/libexec/streamer/wifi-powersave-off
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

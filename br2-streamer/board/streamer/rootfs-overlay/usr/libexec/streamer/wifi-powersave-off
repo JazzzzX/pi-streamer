@@ -1,0 +1,7 @@
+#!/bin/sh
+# Keep Wi-Fi power saving off (avoids AirPlay dropouts on the Zero 2 W).
+for i in 1 2 3 4 5 6; do
+  iw dev wlan0 set power_save off 2>/dev/null && iw dev wlan0 get power_save | grep -q off && exit 0
+  sleep 2
+done
+exit 0

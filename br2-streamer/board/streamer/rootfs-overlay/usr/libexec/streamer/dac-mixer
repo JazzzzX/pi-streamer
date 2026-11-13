@@ -1,0 +1,11 @@
+#!/bin/sh
+# Print the DAC's hardware playback-volume control. The JM7MAX exposes "PCM" or
+# "Headset" depending on what is plugged into its jack. Exit 1 if there is none.
+CARD=JM7MAX
+for name in PCM Headset Speaker Master; do
+    if amixer -c "$CARD" sget "$name" 2>/dev/null | grep -q 'pvolume'; then
+        printf '%s\n' "$name"
+        exit 0
+    fi
+done
+exit 1

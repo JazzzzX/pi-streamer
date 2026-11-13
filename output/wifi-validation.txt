@@ -1,0 +1,2 @@
+Native ARM64 generated Wi-Fi config parsing: PASS
+Compiled Unix control interface and diagnostic wpa_cli: PASS

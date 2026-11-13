@@ -1,0 +1,2 @@
+# name uid group gid password home shell groups comment
+streamer-web 500 streamer-web 500 * - /bin/false audio,video Streamer_status

@@ -1,0 +1,14 @@
+[Unit]
+Description=Shairport Sync - AirPlay 2 receiver (Streamer)
+Wants=network-online.target avahi-daemon.service nqptp.service
+After=network-online.target avahi-daemon.service nqptp.service sound.target
+StartLimitIntervalSec=0
+
+[Service]
+RuntimeDirectory=streamer-airplay
+ExecStart=/usr/libexec/streamer/start-player airplay
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

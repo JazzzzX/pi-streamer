@@ -1,0 +1,1 @@
+root=/dev/mmcblk0p2 rootfstype=ext4 rootwait ro console=tty1 net.ifnames=0 cfg80211.ieee80211_regdom=IN brcmfmac.feature_disable=0x82000
