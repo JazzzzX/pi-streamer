@@ -8,6 +8,27 @@ network as **Streamer** and plays through a USB DAC:
 - **Bluetooth** receiver (SBC, AAC, aptX, aptX HD)
 - a view-only **status page** at `http://streamer.local/`
 
+## Quick start: download the image and flash it
+
+You don't need to build anything. A ready-made SD-card image is attached to the
+[r6 release](https://github.com/JazzzzX/pi-streamer/releases/tag/r6).
+
+1. Download
+   [`streamer-zero2w-r6.img.xz`](https://github.com/JazzzzX/pi-streamer/releases/download/r6/streamer-zero2w-r6.img.xz)
+   (60 MB).
+2. Flash it to a microSD card (1 GB or larger) with
+   [Raspberry Pi Imager](https://www.raspberrypi.com/software/) ("Use custom") or
+   balenaEtcher. No need to unzip it; skip Imager's OS customisation.
+3. Open the `STREAMER` drive that appears on your computer and edit `streamer.txt`:
+   your Wi-Fi name (`ssid`), password (`psk`) and `country`.
+4. Put the card in the Pi, connect the DAC to its USB data port (through a USB 2.0 hub
+   if you also use a Bluetooth dongle), and power it on.
+5. After about a minute, **Streamer** shows up as an AirPlay speaker, a Spotify Connect
+   device and a Bluetooth speaker, and `http://streamer.local/` shows its status.
+
+The image is a pre-release: it passed every emulator test but has not yet been booted
+on a real Pi. The details are below.
+
 The system is a custom [Buildroot](https://buildroot.org) image, about 160 MB of
 contents, with read-only system and boot partitions. Pairings and the Spotify login
 live on a small writable data partition.
@@ -24,13 +45,14 @@ live on a small writable data partition.
 The DAC name `JM7MAX` is fixed in the player scripts and the udev rule. Another
 DAC needs those changed.
 
-## Using an image
+## Settings in streamer.txt
 
-1. Flash the `.img.xz` with Raspberry Pi Imager ("Use custom") or balenaEtcher.
-2. Open the `STREAMER` drive and edit `streamer.txt`: `ssid`, `psk`, `country`,
-   `bluetooth` (`auto`, `usb`, `builtin` or `off`), and optionally `ssh_password`.
-3. Boot. After about a minute: `http://streamer.local/`, and Streamer shows up as an
-   AirPlay speaker, a Spotify Connect device and a Bluetooth speaker.
+| Setting | Meaning |
+| --- | --- |
+| `ssid`, `psk`, `country` | Your Wi-Fi. The Pi Zero 2 W only uses 2.4 GHz. |
+| `bluetooth` | `auto` (USB dongle if plugged in, otherwise built-in), `usb`, `builtin` or `off` |
+| `ssh_password` | Empty = SSH off. 8 or more characters = SSH on with that password. |
+| `debug` | `1` = save a troubleshooting report on the card (see below) |
 
 If it does not join Wi-Fi, set `debug=1` in `streamer.txt`. The Pi then saves
 `streamer-log.txt` on the `STREAMER` drive 1 and 4 minutes after power-on (the Wi-Fi
