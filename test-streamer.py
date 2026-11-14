@@ -3,6 +3,7 @@
 No Pi, no disk writes outside temp dirs, no network. The boot itself is checked by qemu-test/boot-test.py."""
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -127,7 +128,7 @@ class StreamerTests(unittest.TestCase):
             self.assertEqual(p.returncode, 1)
             self.assertEqual(p.stdout, '')
 
-    def _bt_env(self, d, radios, usable):
+    def _bt_env(self, d, radios, usable, port=True):
         """Fake /sys/class/bluetooth plus busctl/systemd-run. radios: {name: 'usb'|'serial'}."""
         d = Path(d)
         sysfs = d / 'sys'; mockbin = d / 'bin'
@@ -136,8 +137,12 @@ class StreamerTests(unittest.TestCase):
             '#!/bin/sh\n# usable radios are listed in $USABLE; a set-property on them succeeds\n'
             'n=${3##*/}\ncase " $USABLE " in *" $n "*) ;; *) exit 1 ;; esac\n'
             '[ "$1" = get-property ] && { [ "$5" = Discoverable ] && echo "b true" || echo \'s "AA:BB:CC:DD:EE:FF"\'; }\nexit 0\n')
-        # the real script detaches the re-probe with systemd-run; here run it inline, without the pause
-        (mockbin / 'systemd-run').write_text('#!/bin/sh\nfor a; do last=$a; done\neval "$(echo "$last" | sed "s/sleep 2;//")"\necho ran >> "$REPROBE_LOG"\n')
+        # the real script detaches the re-probe with systemd-run; here run it inline, and instead of
+        # the pause record what the dongle's hub port and its "authorized" switch look like half-way
+        (mockbin / 'systemd-run').write_text(
+            '#!/bin/sh\nfor a; do last=$a; done\n'
+            'mid() { echo "port=$(cat "$REPROBE_USBDEV/port/disable" 2>/dev/null) authorized=$(cat "$REPROBE_USBDEV/authorized")" >> "$REPROBE_MID"; }\n'
+            'eval "$(echo "$last" | sed "s/sleep [0-9]*;/mid;/")"\necho ran >> "$REPROBE_LOG"\n')
         for f in ('busctl', 'systemd-run'):
             (mockbin / f).chmod(0o755)
         for n, typ in radios.items():
@@ -147,11 +152,15 @@ class StreamerTests(unittest.TestCase):
             iface = d / f'{typ}dev-{n}' / f'{typ}-if'              # .../<device>/<interface>, as in sysfs
             iface.mkdir(parents=True, exist_ok=True)
             (iface.parent / 'authorized').write_text('1\n')
+            if typ == 'usb' and port:                                  # the hub port's on/off switch (Linux 6.0+)
+                (iface.parent / 'port').mkdir(exist_ok=True)
+                (iface.parent / 'port/disable').write_text('0\n')
             if not (h / 'device').exists():
                 (h / 'device').symlink_to(iface)
         settings = d / 'streamer.txt'
         env = dict(os.environ, STREAMER_TXT=str(settings), BT_SYSFS=str(sysfs), BT_STATE=str(d / 'reprobe-count'),
                    BT_WAIT='0', USABLE=' '.join(usable), REPROBE_LOG=str(d / 'reprobe.log'),
+                   REPROBE_MID=str(d / 'reprobe.mid'), REPROBE_USBDEV=str(d / 'usbdev-hci1'),
                    PATH=str(mockbin) + ':' + os.environ['PATH'])
         return d, sysfs, settings, env
 
@@ -185,14 +194,18 @@ class StreamerTests(unittest.TestCase):
             d, sysfs, settings, env = self._bt_env(tmp, {'hci0': 'serial', 'hci1': 'usb'}, ['hci0'])
             settings.write_text('bluetooth=auto\n')
             auth = d / 'usbdev-hci1' / 'authorized'
+            port = d / 'usbdev-hci1' / 'port/disable'
             for attempt in (1, 2, 3):
                 p = subprocess.run(['/bin/sh', script], capture_output=True, text=True, env=env)
                 self.assertEqual(p.returncode, 0, p.stderr)
-                self.assertIn(f're-probing it, attempt {attempt} of 3', p.stdout)
+                self.assertIn(f're-probing it (hub port reset), attempt {attempt} of 3', p.stdout)
                 self.assertNotIn('using=', p.stdout)                   # nothing selected yet: wait for the radio
-                self.assertEqual(auth.read_text().strip(), '1', 'the dongle must end up switched back on')
+                self.assertEqual(port.read_text().strip(), '0', 'the hub port must end up switched back on')
+                self.assertEqual(auth.read_text().strip(), '1')
                 self.assertEqual((d / 'reprobe-count').read_text().strip(), str(attempt))
             self.assertEqual((d / 'reprobe.log').read_text().count('ran'), 3)
+            # half-way through each reset the port was off; the software switch was never used
+            self.assertEqual((d / 'reprobe.mid').read_text().splitlines(), ['port=1 authorized=1'] * 3)
             self.assertEqual((d / 'serialdev-hci0' / 'authorized').read_text().strip(), '1')   # built-in untouched
             # fourth run: give up on the dongle, use the built-in radio, and block the dead one
             p = subprocess.run(['/bin/sh', script], capture_output=True, text=True, env=env)
@@ -216,6 +229,61 @@ class StreamerTests(unittest.TestCase):
             p = subprocess.run(['/bin/sh', script], capture_output=True, text=True, env=env)
             self.assertIn('using=hci0', p.stdout)
             self.assertFalse((d / 'reprobe-count').exists())
+
+    def test_dead_usb_radio_without_a_port_switch_is_replugged_in_software(self):
+        """Kernels older than 6.0 have no hub port switch: fall back to the USB "authorized" switch."""
+        script = str(LIBEXEC / 'bt-select')
+        with tempfile.TemporaryDirectory() as tmp:
+            d, sysfs, settings, env = self._bt_env(tmp, {'hci0': 'serial', 'hci1': 'usb'}, ['hci0'], port=False)
+            settings.write_text('bluetooth=auto\n')
+            p = subprocess.run(['/bin/sh', script], capture_output=True, text=True, env=env)
+            self.assertEqual(p.returncode, 0, p.stderr)
+            self.assertIn('re-probing it (software re-plug), attempt 1 of 3', p.stdout)
+            self.assertEqual((d / 'reprobe.mid').read_text().splitlines(), ['port= authorized=0'])
+            self.assertEqual((d / 'usbdev-hci1' / 'authorized').read_text().strip(), '1')
+
+    def test_ldac_is_built_in_from_a_pinned_licensed_source(self):
+        ext = BASE / 'br2-streamer'
+        mk = (ext / 'package/libldac/libldac.mk').read_text()
+        version = re.search(r'^LIBLDAC_VERSION = ([0-9a-f]{40})$', mk, re.M).group(1)      # a commit, not a branch
+        self.assertIn('$(call github,open-vela,external_libldac,$(LIBLDAC_VERSION))', mk)
+        self.assertNotIn('O2C14', mk)                                   # the decoder without a license
+        self.assertIn('LIBLDAC_LICENSE = Apache-2.0', mk)
+        self.assertIn('LIBLDAC_LICENSE_FILES = LICENSE NOTICE', mk)
+        for f in ('LICENSE', 'NOTICE'):                                # shipped with the binary, as the license asks
+            self.assertIn(f'$(TARGET_DIR)/usr/share/licenses/libldac/{f}', mk)
+        hashes = (ext / 'package/libldac/libldac.hash').read_text()
+        self.assertRegex(hashes, rf'sha256  [0-9a-f]{{64}}  libldac-{version}\.tar\.gz')
+        self.assertIn('source "$BR2_EXTERNAL_STREAMER_PATH/package/libldac/Config.in"', (ext / 'Config.in').read_text())
+        defconfig = (ext / 'configs/streamer_zero2w_defconfig').read_text()
+        self.assertIn('BR2_PACKAGE_LIBLDAC=y', defconfig)
+        self.assertIn('$(BR2_EXTERNAL_STREAMER_PATH)/patches"', defconfig)
+        external = (ext / 'external.mk').read_text()
+        self.assertIn('BLUEZ_ALSA_CONF_OPTS += --enable-ldac', external)
+        self.assertIn('$(BLUEZ_ALSA_TARGET_CONFIGURE): | libldac', external)   # libldac first
+        pc = (ext / 'package/libldac/ldacBT.pc.in').read_text()
+        self.assertIn('Name: ldacBT-@MODULE@', pc)
+        self.assertRegex(mk, r'foreach m,enc dec abr')                 # the three names bluez-alsa's configure asks for
+        unit = (UNITS / 'streamer-bluealsa.service').read_text()
+        self.assertIn('-p a2dp-sink -c AAC -c aptX -c aptX-HD -c LDAC', unit)
+        readme = (BASE / 'README.md').read_text()
+        for text in ['open-vela/external_libldac', 'Apache', 'not certified', 'trademark of Sony']:
+            self.assertIn(text, readme)
+
+    def test_bluetooth_volume_follows_the_mixer_scale(self):
+        patches = sorted((BASE / 'br2-streamer/patches/bluez-alsa').glob('*.patch'))
+        self.assertEqual([p.name[:4] for p in patches], ['0001', '0002'])
+        volume = patches[0].read_text()
+        self.assertIn('+++ b/utils/aplay/aplay.c', volume)
+        self.assertIn('+	if ((err = snd_mixer_selem_set_playback_volume_all(elem, raw)) != 0) {', volume)
+        self.assertIn('-	if ((err = snd_mixer_selem_set_playback_dB_all(elem, db, 0)) != 0) {', volume)
+        # the two conversions of the patch, phone (0-127) <-> JM7MAX mixer (0-148), agree with each other
+        to_mixer = lambda v: round(v / 127 * 148)
+        to_phone = lambda raw: round(raw / 148 * 127)
+        self.assertEqual([to_mixer(v) for v in (0, 51, 64, 127)], [0, 59, 75, 148])   # 40% -> 40%, 50% -> 50%
+        self.assertEqual([to_phone(to_mixer(v)) for v in range(128)], list(range(128)))
+        player = (LIBEXEC / 'start-player').read_text()
+        self.assertIn('--volume=mixer', player)
 
     def _ssh_env(self, d, settings_text, shadow="root:*:::::::\ndaemon:*:::::::\n"):
         d = Path(d)

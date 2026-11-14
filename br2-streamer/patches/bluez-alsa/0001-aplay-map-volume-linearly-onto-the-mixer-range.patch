@@ -1,0 +1,94 @@
+aplay: map the Bluetooth volume linearly onto the mixer's range
+
+bluealsa-aplay converts the volume a phone sends (0-127) to a mixer level with a
+loudness formula: every halving of the phone's volume lowers the mixer by 10 dB.
+On a USB DAC that leaves the output within 10 dB of full scale for the whole upper
+half of the phone's slider, much louder than the same slider position on a computer.
+
+Use the mixer's own scale instead, in both directions: 40% on the phone is 40% of
+the mixer range, as "amixer set PCM 40%" would set it.
+
+Upstream: not submitted; a change of behaviour that this project wants.
+
+--- a/utils/aplay/aplay.c
++++ b/utils/aplay/aplay.c
+@@ -372,18 +372,21 @@
+ 
+ 	snd_mixer_elem_t *elem = worker->snd_mixer_elem;
+ 	const int vmax = BA_PCM_VOLUME_MAX(ba_pcm);
+-	long long volume_db_sum = 0;
++	long vmin_raw = 0, vmax_raw = 0;
++	long long volume_raw_sum = 0;
+ 	bool muted = true;
+ 
++	snd_mixer_selem_get_playback_volume_range(elem, &vmin_raw, &vmax_raw);
++
+ 	snd_mixer_selem_channel_id_t ch;
+ 	for (ch = 0; snd_mixer_selem_has_playback_channel(elem, ch) == 1; ch++) {
+ 
+-		long ch_volume_db;
++		long ch_volume_raw;
+ 		int ch_switch = 1;
+ 		int err;
+ 
+-		if ((err = snd_mixer_selem_get_playback_dB(elem, ch, &ch_volume_db)) != 0) {
+-			error("Couldn't get ALSA mixer playback dB level: %s", snd_strerror(err));
++		if ((err = snd_mixer_selem_get_playback_volume(elem, ch, &ch_volume_raw)) != 0) {
++			error("Couldn't get ALSA mixer playback volume: %s", snd_strerror(err));
+ 			return -1;
+ 		}
+ 
+@@ -394,22 +397,18 @@
+ 			return -1;
+ 		}
+ 
+-		volume_db_sum += ch_volume_db;
+-		/* Normalize volume level so it will not exceed 0.00 dB. */
+-		volume_db_sum -= worker->mixer_volume_db_max_value;
++		volume_raw_sum += ch_volume_raw - vmin_raw;
+ 
+ 		if (ch_switch == 1)
+ 			muted = false;
+ 
+ 	}
+ 
+-	/* Safety check for undefined behavior from
+-	 * out-of-bounds dB conversion. */
+-	assert(volume_db_sum <= 0LL);
+-
+-	/* Convert dB to loudness using decibel formula and
+-	 * round to the nearest integer. */
+-	int volume = lround(pow(2, (0.01 * volume_db_sum / ch) / 10) * vmax);
++	/* Same position on both scales: 40% of the mixer range
++	 * is 40% of the Bluetooth volume range. */
++	int volume = 0;
++	if (ch > 0 && vmax_raw > vmin_raw)
++		volume = lround(1.0 * volume_raw_sum / ch / (vmax_raw - vmin_raw) * vmax);
+ 
+ 	/* If mixer element does not support playback switch,
+ 	 * use our global muted state. */
+@@ -464,13 +463,18 @@
+ 	/* keep local muted state up to date */
+ 	pcm_muted = muted;
+ 
+-	/* convert loudness to dB using decibel formula */
+-	long db = 10 * log2(1.0 * volume / vmax) * 100;
+-	db += worker->mixer_volume_db_max_value;
+-
++	/* Same position on both scales: 40% of the Bluetooth volume
++	 * range is 40% of the mixer range. */
++	long vmin_raw = 0, vmax_raw = 0;
+ 	int err;
+-	if ((err = snd_mixer_selem_set_playback_dB_all(elem, db, 0)) != 0) {
+-		error("Couldn't set ALSA mixer playback dB level: %s", snd_strerror(err));
++	if ((err = snd_mixer_selem_get_playback_volume_range(elem, &vmin_raw, &vmax_raw)) != 0) {
++		error("Couldn't get ALSA mixer playback volume range: %s", snd_strerror(err));
++		return -1;
++	}
++
++	long raw = vmin_raw + lround(1.0 * volume / vmax * (vmax_raw - vmin_raw));
++	if ((err = snd_mixer_selem_set_playback_volume_all(elem, raw)) != 0) {
++		error("Couldn't set ALSA mixer playback volume: %s", snd_strerror(err));
+ 		return -1;
+ 	}
+ 

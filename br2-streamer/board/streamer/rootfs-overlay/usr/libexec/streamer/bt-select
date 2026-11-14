@@ -4,8 +4,8 @@
 #
 # A USB dongle whose firmware download failed at power-on (seen with the TP-Link UB500:
 # "RTL: download fw command failed") stays dead until it is re-plugged. Such a radio is
-# re-probed, up to MAX_REPROBE times per boot; if it still does not come up, "auto"
-# falls back to the built-in radio.
+# reset by switching its hub port off and on, up to MAX_REPROBE times per boot; if it
+# still does not come up, "auto" falls back to the built-in radio.
 F=${STREAMER_TXT:-/boot/streamer.txt}
 SYS=${BT_SYSFS:-/sys/class/bluetooth}
 STATE=${BT_STATE:-/run/streamer-bt-reprobe}
@@ -40,20 +40,32 @@ for h in "$SYS"/hci*; do
 	esac
 done
 
-# Re-probe a dead dongle (same effect as unplugging and plugging it back in). The udev rule
-# runs this script again when the radio re-appears.
+# Reset a dead dongle. The udev rule runs this script again when the radio re-appears.
+# Switching the hub port off and on is what worked on the real failure: the dongle
+# re-enumerated and loaded its firmware at once. Taking the device away and back in software
+# only (USB "authorized"), which earlier images did, left the chip timing out as before, so
+# it is used only where the kernel offers no port switch.
 if [ -n "$dead" ] && [ -z "$usb" ]; then
 	tries=$(cat "$STATE" 2>/dev/null || echo 0)
 	case "$tries" in ''|*[!0-9]*) tries=0 ;; esac
 	n=$(echo $dead | awk '{print $1}')
 	dev=$(readlink -f "$SYS/$n/device")       # USB interface, e.g. .../1-1.2/1-1.2:1.0
-	auth=${dev%/*}/authorized                 # its USB device
-	if [ "$tries" -lt "$MAX_REPROBE" ] && [ -w "$auth" ]; then
+	usbdev=${dev%/*}                          # its USB device
+	port=$usbdev/port/disable                 # the hub port it is plugged into
+	auth=$usbdev/authorized
+	if [ -w "$port" ]; then
+		how="hub port reset"; cmd="echo 1 > '$port'; sleep 3; echo 0 > '$port'"
+	elif [ -w "$auth" ]; then
+		how="software re-plug"; cmd="echo 0 > '$auth'; sleep 2; echo 1 > '$auth'"
+	else
+		how=""
+	fi
+	if [ "$tries" -lt "$MAX_REPROBE" ] && [ -n "$how" ]; then
 		echo $((tries+1)) > "$STATE"
-		echo "bt-select: USB radio $n did not start (firmware not loaded); re-probing it, attempt $((tries+1)) of $MAX_REPROBE"
+		echo "bt-select: USB radio $n did not start (firmware not loaded); re-probing it ($how), attempt $((tries+1)) of $MAX_REPROBE"
 		# Run outside this service: removing the radio makes udev restart bt-select, which
 		# would otherwise kill this script between the two steps and leave the dongle off.
-		systemd-run --quiet --collect /bin/sh -c "echo 0 > '$auth'; sleep 2; echo 1 > '$auth'" ||
+		systemd-run --quiet --collect /bin/sh -c "$cmd" ||
 			echo "bt-select: could not start the re-probe"
 		exit 0
 	fi

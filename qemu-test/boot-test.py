@@ -224,6 +224,10 @@ def main():
         bt = g.run('modprobe bluetooth; sleep 2; systemctl start bluetooth.target; sleep 14; '
                    'for u in bluetooth bt-agent bt-select streamer-bluealsa streamer-bluealsa-aplay; do printf "%s=%s " $u $(systemctl is-active $u); done; echo', timeout=60)
         check('Bluetooth service chain starts once a Bluetooth stack exists', bt, lacks=['=inactive', '=failed', '=activating'])
+        check('Bluetooth receiver runs with LDAC enabled and its LDAC library loaded',
+              g.run('tr "\\0" " " < /proc/$(pidof bluealsa)/cmdline; echo; grep -q libldacBT /proc/$(pidof bluealsa)/maps && echo library=loaded; '
+                    'echo "sink-codecs-with-LDAC=$(bluealsa --help | grep a2dp-sink | grep -c LDAC)"; ls /usr/share/licenses/libldac'),
+              has=['-c AAC -c aptX -c aptX-HD -c LDAC', 'library=loaded', 'sink-codecs-with-LDAC=1', 'LICENSE', 'NOTICE'])
         check('pairings are stored on the data partition', g.run('grep -c " /var/lib/bluetooth " /proc/$(pidof bluetoothd)/mountinfo'), equals='1')
         check('no diagnostic report written (debug=0)', g.run('ls /boot/streamer-log.txt 2>&1 | tail -n1'), has=['No such file'])
         g.stop()

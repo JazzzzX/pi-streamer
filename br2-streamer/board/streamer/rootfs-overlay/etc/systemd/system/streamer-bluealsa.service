@@ -1,5 +1,5 @@
 [Unit]
-Description=BlueALSA - Bluetooth audio receiver (SBC, AAC, aptX, aptX HD)
+Description=BlueALSA - Bluetooth audio receiver (SBC, AAC, aptX, aptX HD, LDAC)
 ConditionPathIsDirectory=/sys/class/bluetooth
 Requires=bluetooth.service dbus.service
 After=bluetooth.service dbus.service
@@ -7,7 +7,7 @@ After=bluetooth.service dbus.service
 [Service]
 Type=dbus
 BusName=org.bluealsa
-ExecStart=/usr/bin/bluealsa -S -p a2dp-sink -c AAC -c aptX -c aptX-HD
+ExecStart=/usr/bin/bluealsa -S -p a2dp-sink -c AAC -c aptX -c aptX-HD -c LDAC
 Restart=always
 RestartSec=5
 

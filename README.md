@@ -5,7 +5,7 @@ network as **Streamer** and plays through a USB DAC:
 
 - **AirPlay 2** (shairport-sync 5.6.3 + nqptp)
 - **Spotify Connect** (librespot 0.8.0, up to 320 kbps)
-- **Bluetooth** receiver (SBC, AAC, aptX, aptX HD)
+- **Bluetooth** receiver (SBC, AAC, aptX, aptX HD, and LDAC with a USB Bluetooth dongle)
 - a view-only **status page** at `http://streamer.local/`
 
 ## Quick start: download the image and flash it
@@ -26,7 +26,9 @@ You don't need to build anything. A ready-made SD-card image is attached to the
 5. After about a minute, **Streamer** shows up as an AirPlay speaker, a Spotify Connect
    device and a Bluetooth speaker, and `http://streamer.local/` shows its status.
 
-This image has been flashed and run on a real Pi Zero 2 W (see Status below).
+r6 has been flashed and run on a real Pi Zero 2 W. It does not have LDAC. r7, which
+adds LDAC, is built and has passed its tests in the emulator, and will be released
+once it has run on a real Pi (see Status below).
 
 The system is a custom [Buildroot](https://buildroot.org) image, about 160 MB of
 contents, with read-only system and boot partitions. Pairings and the Spotify login
@@ -38,7 +40,7 @@ live on a small writable data partition.
 | --- | --- |
 | Raspberry Pi Zero 2 W | 64-bit, 2.4 GHz Wi-Fi only |
 | JCally JM7MAX USB-C DAC | USB ID `06cb:1595`; shows its volume control as `PCM` or `Headset` |
-| TP-Link UB500 Bluetooth dongle | Optional. Realtek RTL8761BU. The built-in radio shares its chip with Wi-Fi and dropped audio badly in testing. |
+| TP-Link UB500 Bluetooth dongle | Optional, but needed for LDAC above its lowest rate. Realtek RTL8761BU. The built-in radio shares its chip with Wi-Fi and dropped audio badly in testing. |
 | USB 2.0 hub | The Zero has one USB data port |
 
 The DAC name `JM7MAX` is fixed in the player scripts and the udev rule. Another
@@ -64,17 +66,50 @@ is switched on and keeps them on its data partition.
 
 `output/README.txt` describes the current image revision in detail.
 
+## LDAC
+
+Streamer receives LDAC from Android phones, at up to 96 kHz and 990 kbps. Apple
+devices do not send LDAC; they use AAC.
+
+- **Use a USB Bluetooth dongle for it.** Measured on the Pi: the Zero 2 W's built-in
+  radio played LDAC cleanly only at its lowest rate, 330 kbps. At 990 kbps about a
+  third of the data never arrived and playback broke up. With the TP-Link UB500,
+  990 kbps at 96 kHz played with no lost packets. Other dongles have not been tried.
+- **On the phone:** pair with Streamer and choose LDAC in the device's Bluetooth
+  settings. For the full rate, set "Bluetooth audio LDAC codec: playback quality" to
+  "Optimised for audio quality (990 kbps)" in Developer options.
+- **Where the code comes from:** Sony's LDAC library as published by the openvela
+  project, [open-vela/external_libldac](https://github.com/open-vela/external_libldac),
+  under the Apache License 2.0. The build downloads it at a pinned commit
+  (`br2-streamer/package/libldac`); none of it is in this repository. Sony itself has
+  published the encoder, in Android; the decoder files are only in the openvela
+  repository. The image carries the library's `LICENSE` and `NOTICE` in
+  `/usr/share/licenses/libldac`.
+- **Trademark and certification:** LDAC is a trademark of Sony Corporation. This
+  project is not affiliated with Sony, and the image is not certified by Sony. The
+  library's `NOTICE` says that products using LDAC need Sony's certification.
+- **Building without it:** remove `BR2_PACKAGE_LIBLDAC=y` from the defconfig and
+  `-c LDAC` from `streamer-bluealsa.service`.
+
+## Bluetooth volume
+
+The phone's volume slider sets the DAC's own hardware volume, on the DAC's scale: 40%
+on the phone is 40% on the DAC, as `amixer set PCM 40%` would set it. Stock
+`bluealsa-aplay` uses a loudness formula instead, which keeps a USB DAC within 10 dB
+of full output for the whole upper half of the slider; a patch in
+`br2-streamer/patches/bluez-alsa` replaces it.
+
 ## Layout
 
 | Path | Contents |
 | --- | --- |
-| `br2-streamer/` | Buildroot external tree: defconfig, `librespot` package, board files, root filesystem overlay (units, scripts, status page) |
+| `br2-streamer/` | Buildroot external tree: defconfig, `librespot` and `libldac` packages, two patches for bluez-alsa, board files, root filesystem overlay (units, scripts, status page) |
 | `br2-streamer/board/streamer/streamer.txt` | The settings file that ends up on the boot partition |
 | `buildroot-backports/` | `shairport-sync`, `nqptp` and `libplist` package files taken from Buildroot master (commit `dc102467`), because 2026.08.1 only has shairport-sync 4.3.7 |
 | `status-page/` | Source of the status page; the overlay holds an identical copy (a test checks this) |
 | `Dockerfile`, `build.sh`, `run.sh` | Build container, the build itself, and a helper to run commands in the Buildroot tree |
-| `test-streamer.py` | 17 host-side tests of the scripts and settings |
-| `check-image-modules.sh`, `check-image-wifi.sh` | Checks run against the built image with its own ARM64 binaries |
+| `test-streamer.py` | 20 host-side tests of the scripts and settings |
+| `check-image-contents.sh`, `check-image-modules.sh`, `check-image-wifi.sh`, `check-image-ldac.sh` (+ `.c`) | Checks run against the built image, most of them with its own ARM64 binaries |
 | `qemu-test/` | Boots the built SD image in QEMU three times and checks it from inside and over SSH |
 | `output/` | Notes, checksums, resolved Buildroot config and check results for the current image. The image files themselves are not in the repository. |
 | `pi-os-setup/` | Scripts from the earlier hand-built Raspberry Pi OS setup, for reference |
@@ -88,9 +123,9 @@ is switched on and keeps them on its data partition.
 This needs Docker. It builds the build container, keeps the Buildroot tree, downloads
 and build output in a Docker volume named `streamer-br` (about 20 GB), fetches
 Buildroot 2026.08.1, copies in the three backported packages, builds, and writes
-`output/streamer-zero2w.img`. A first build takes one to two hours or more, most of it
-downloading and compiling. It was last run from an empty volume on an Apple Silicon
-Mac (Colima, 8 CPUs, 12 GB).
+`output/streamer-zero2w.img`. It was last run from an empty volume on an Apple Silicon
+Mac (Colima, 8 CPUs, 12 GB) and took 35 minutes. With slow downloads the same build
+has taken many hours.
 
 Later runs reuse the volume and pick up changes to the root filesystem overlay. Other
 changes need one package rebuilt first; the comments at the top of `build.sh` list
@@ -104,11 +139,19 @@ python3 test-streamer.py          # scripts and settings; no Pi, no network
 # against the built image, using its own ARM64 binaries
 docker run --rm -u0 -v streamer-br:/work -v "$PWD/check-image-modules.sh:/c.sh:ro" streamer-br-builder bash /c.sh
 docker run --rm -u0 -v streamer-br:/work -v "$PWD/check-image-wifi.sh:/c.sh:ro"    streamer-br-builder bash /c.sh
+docker run --rm -u0 -v streamer-br:/work -v "$PWD/check-image-ldac.sh:/c.sh:ro" \
+  -v "$PWD/check-image-ldac.c:/check-image-ldac.c:ro" streamer-br-builder bash /c.sh
 
-# boot the image in QEMU; exit status 0 means every check passed
+# unit files, filesystems, boot partition, nothing secret; then boot the image in QEMU.
+# Exit status 0 means every check passed.
 docker build -t streamer-qemu qemu-test
+docker run --rm -u0 -v streamer-br:/work -v "$PWD/check-image-contents.sh:/c.sh:ro" streamer-qemu bash /c.sh
 docker run --rm -u0 -v streamer-br:/work -v "$PWD/qemu-test/boot-test.py:/boot-test.py:ro" streamer-qemu python3 /boot-test.py
 ```
+
+The LDAC check encodes a test signal with the image's LDAC library, decodes it again
+the way the Bluetooth receiver does, and compares the result with the original, at
+44.1 to 96 kHz and at all three LDAC bit rates.
 
 The QEMU test boots one copy of the image three times: as published (SSH must be
 off and no key may exist), with `ssh_password` set (a real password login must work
@@ -122,8 +165,16 @@ the Pi itself.
   (`BR2_PACKAGE_XZ=y`), or no Wi-Fi, Bluetooth or USB-audio driver loads.
 - wpa_supplicant 2.12 with this kernel's `brcmfmac` associates and then times out on
   WPA2. `brcmfmac.feature_disable=0x82000` on the kernel command line fixes it.
-- The UB500 sometimes fails its firmware download at power-on. `bt-select` re-probes
-  it up to three times, then falls back to the built-in radio.
+- The UB500 sometimes fails its firmware download at power-on and then stays dead.
+  Switching its hub port off and on (`/sys/bus/usb/devices/<dev>/port/disable`) brings
+  it back; taking the device away and back in software (`authorized`) does not.
+  `bt-select` does the port reset up to three times, then falls back to the built-in
+  radio.
+- Buildroot's bluez-alsa package has no LDAC option, and a package's dependencies
+  cannot be extended from an external tree. `external.mk` adds `--enable-ldac` and an
+  ordering rule so that `libldac` is installed first.
+- The openvela LDAC library's `ldac_ABR_get_handle()` takes an argument that the
+  Android one does not; bluez-alsa needs a one-line patch to build against it.
 - Only one mDNS responder may run. librespot uses Avahi (`with-avahi`), and
   systemd-resolved's mDNS is off; otherwise the Pi can come up as `streamer-2.local`.
 - BusyBox 1.38 httpd with CGI enabled returns 404 for `/` unless basic-auth support
@@ -132,28 +183,43 @@ the Pi itself.
 
 ## Status
 
-r6 is the first image with nothing personal built in, and the one published under
-Releases. It passed the tests above, including three QEMU boots with a real SSH
-password login.
+**r7 (built 2026-11-14, not released yet)** adds LDAC, the one-to-one Bluetooth volume
+and the hub port reset for a UB500 that did not start. It was built from an empty
+build volume and passed every check that does not need a Pi:
 
-**On a real Pi Zero 2 W (2026-11-14), r6 flashed from the release file:**
+- 20 host-side tests of the scripts and settings
+- on the image: unit files, filesystems, boot partition, no keys or passwords; its
+  module loader decodes the Wi-Fi, USB-audio and Bluetooth drivers; its wpa_supplicant
+  accepts the generated Wi-Fi config
+- LDAC on the image: its Bluetooth receiver lists LDAC, and its LDAC library decodes
+  what it encoded at 44.1, 48, 88.2 and 96 kHz, with no decode errors
+- 41 of 41 checks over three boots in QEMU, including the receiver starting with LDAC
+  enabled and a real SSH password login
+
+r7 has not been booted on a real Pi. In particular, nobody has yet heard LDAC through
+this decoder on the Pi, used the new volume mapping, or seen the hub port reset run
+by itself.
+
+**r6 on a real Pi Zero 2 W (2026-11-14), flashed from the release file:**
 
 - boots, joins a WPA2 2.4 GHz network and keeps the same address as before
 - `streamer.local` and the status page load; the system is read-only
 - Streamer is advertised as an AirPlay speaker and a Spotify Connect device
 - the JM7MAX DAC is detected with its `PCM` volume control
-- Bluetooth audio from a Mac plays through the DAC (AAC, 44.1 kHz, on the Pi's
-  built-in radio)
-- with a password shorter than 8 characters, SSH stays off and port 22 is closed
+- SSH: off with a password shorter than 8 characters; password login works with a
+  longer one
+- Bluetooth audio from a Mac plays through the DAC (AAC, 44.1 kHz)
+- the UB500 failed its firmware download at one power-on. r6's recovery (software
+  re-plug) failed three times and Streamer fell back to the built-in radio. Switching
+  the hub port off and on by hand brought the dongle up at the first try. r7 does that
+  by itself.
+- LDAC, tried on r6 with a receiver installed by hand (and a different LDAC decoder
+  than r7's): from an Android phone at 96 kHz, the built-in radio was clean at
+  330 kbps and lost about a third of the data at 990 kbps; the UB500 carried 990 kbps
+  with no lost packets.
 
-**Not yet confirmed on r6 hardware:**
-
-- AirPlay and Spotify Connect playback (both played on r5, which differs from r6 only
-  in the SSH setup, the DHCP identity and one line of the status page)
-- the TP-Link UB500 dongle: this boot ended up on the built-in radio, and why was not
-  investigated
-- SSH login with a valid password (tested in QEMU only)
-- the UB500 recovery during a real failed power-on (only simulated on r5)
+**Not yet confirmed on hardware:** AirPlay and Spotify Connect playback on r6 or r7
+(both played on r5).
 
 Known cosmetic issue: the status page shows non-ASCII characters in a Bluetooth device
 name as escape codes (for example `\342\200\231` for a curly apostrophe).

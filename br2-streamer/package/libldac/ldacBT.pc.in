@@ -1,0 +1,10 @@
+prefix=/usr
+libdir=${prefix}/lib
+includedir=${prefix}/include/ldac
+
+Name: ldacBT-@MODULE@
+Description: Sony LDAC Bluetooth codec library (@MODULE@)
+Version: @VERSION@
+Libs: -L${libdir} -lldacBT
+Libs.private: -lm
+Cflags: -I${includedir}

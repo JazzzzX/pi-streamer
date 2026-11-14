@@ -1,0 +1,22 @@
+a2dp-ldac: build with the openvela LDAC library
+
+The LDAC library published by openvela, the one with a decoder, declares
+ldac_ABR_get_handle(const char *libpath). The older library in Android, which
+bluez-alsa was written against, takes no argument. NULL keeps the old behaviour:
+the adaptive bit rate module uses the LDAC functions it is linked with.
+
+Only the sending side uses this call. Streamer only receives.
+
+Upstream: not submitted; depends on which LDAC library is installed.
+
+--- a/src/a2dp-ldac.c
++++ b/src/a2dp-ldac.c
+@@ -127,7 +127,7 @@
+ 	pthread_cleanup_push(PTHREAD_CLEANUP(ldacBT_free_handle), handle);
+ 
+ 	HANDLE_LDAC_ABR handle_abr;
+-	if ((handle_abr = ldac_ABR_get_handle()) == NULL) {
++	if ((handle_abr = ldac_ABR_get_handle(NULL)) == NULL) {
+ 		error("Couldn't get LDAC ABR handle: %s", strerror(errno));
+ 		goto fail_open_ldac_abr;
+ 	}

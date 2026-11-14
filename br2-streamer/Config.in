@@ -1,1 +1,2 @@
 source "$BR2_EXTERNAL_STREAMER_PATH/package/librespot/Config.in"
+source "$BR2_EXTERNAL_STREAMER_PATH/package/libldac/Config.in"

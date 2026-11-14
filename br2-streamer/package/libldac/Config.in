@@ -1,0 +1,14 @@
+config BR2_PACKAGE_LIBLDAC
+	bool "libldac"
+	help
+	  Sony's LDAC Bluetooth audio codec library (encoder, decoder
+	  and adaptive bit rate), in the version published by the
+	  openvela project under the Apache License 2.0.
+
+	  bluez-alsa uses it to receive LDAC.
+
+	  LDAC is a trademark of Sony Corporation. The NOTICE file of
+	  the source says that products using LDAC need Sony's
+	  certification; this build is not certified.
+
+	  https://github.com/open-vela/external_libldac

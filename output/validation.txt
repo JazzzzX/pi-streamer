@@ -1,8 +1,12 @@
+test_bluetooth_volume_follows_the_mixer_scale (__main__.StreamerTests.test_bluetooth_volume_follows_the_mixer_scale) ... ok
 test_boot_configuration (__main__.StreamerTests.test_boot_configuration) ... ok
 test_dead_usb_radio_is_reprobed_then_falls_back (__main__.StreamerTests.test_dead_usb_radio_is_reprobed_then_falls_back)
 The UB500 failure seen on the Pi: hci1 exists but its firmware never loaded, so BlueZ does not list it. ... ok
+test_dead_usb_radio_without_a_port_switch_is_replugged_in_software (__main__.StreamerTests.test_dead_usb_radio_without_a_port_switch_is_replugged_in_software)
+Kernels older than 6.0 have no hub port switch: fall back to the USB "authorized" switch. ... ok
 test_debug_log_is_opt_in_and_hides_password (__main__.StreamerTests.test_debug_log_is_opt_in_and_hides_password) ... ok
 test_json_escaping (__main__.StreamerTests.test_json_escaping) ... ok
+test_ldac_is_built_in_from_a_pinned_licensed_source (__main__.StreamerTests.test_ldac_is_built_in_from_a_pinned_licensed_source) ... ok
 test_mixer_detection (__main__.StreamerTests.test_mixer_detection) ... ok
 test_nothing_secret_is_built_into_the_image (__main__.StreamerTests.test_nothing_secret_is_built_into_the_image) ... ok
 test_players_fall_back_to_software_volume (__main__.StreamerTests.test_players_fall_back_to_software_volume) ... ok
@@ -18,6 +22,6 @@ test_units (__main__.StreamerTests.test_units) ... ok
 test_wifi_config_generation (__main__.StreamerTests.test_wifi_config_generation) ... ok
 
 ----------------------------------------------------------------------
-Ran 17 tests in 4.708s
+Ran 20 tests in 4.679s
 
 OK

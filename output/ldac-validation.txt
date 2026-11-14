@@ -1,0 +1,10 @@
+bluealsa in the image receives:	SBC, AAC, aptX, aptX-HD, LDAC
+bluealsa links: libldacBT.so.2
+LDAC license and notice are in the image: PASS
+LDAC  44100 Hz  910 kbps: 132352 samples back, decode errors 0, signal-to-noise 91.9 dB (need 80) PASS
+LDAC  48000 Hz  989 kbps: 143872 samples back, decode errors 0, signal-to-noise 93.8 dB (need 80) PASS
+LDAC  88200 Hz  910 kbps: 264704 samples back, decode errors 0, signal-to-noise 83.9 dB (need 80) PASS
+LDAC  96000 Hz  989 kbps: 287744 samples back, decode errors 0, signal-to-noise 91.5 dB (need 80) PASS
+LDAC  96000 Hz  660 kbps: 288000 samples back, decode errors 0, signal-to-noise 72.3 dB (need 60) PASS
+LDAC  96000 Hz  329 kbps: 287232 samples back, decode errors 0, signal-to-noise 22.9 dB (need 20) PASS
+LDAC round trip with the image's library: PASS
