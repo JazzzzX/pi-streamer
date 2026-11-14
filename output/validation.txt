@@ -22,6 +22,6 @@ test_units (__main__.StreamerTests.test_units) ... ok
 test_wifi_config_generation (__main__.StreamerTests.test_wifi_config_generation) ... ok
 
 ----------------------------------------------------------------------
-Ran 20 tests in 3.925s
+Ran 20 tests in 4.601s
 
 OK

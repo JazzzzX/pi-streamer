@@ -23,5 +23,5 @@ root filesystem contents: 158M
 librespot 0.8.0 
 bluealsa v4.3.1
 PASS
-== key search in the packaged image (streamer-zero2w-r7.img)
+== key search in the packaged image (streamer-zero2w-r8.img)
 key material from the fixed keys of images r1 to r5 (10 patterns): 0 matches in the image

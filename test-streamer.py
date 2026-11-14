@@ -137,12 +137,17 @@ class StreamerTests(unittest.TestCase):
             '#!/bin/sh\n# usable radios are listed in $USABLE; a set-property on them succeeds\n'
             'n=${3##*/}\ncase " $USABLE " in *" $n "*) ;; *) exit 1 ;; esac\n'
             '[ "$1" = get-property ] && { [ "$5" = Discoverable ] && echo "b true" || echo \'s "AA:BB:CC:DD:EE:FF"\'; }\nexit 0\n')
-        # the real script detaches the re-probe with systemd-run; here run it inline, and instead of
-        # the pause record what the dongle's hub port and its "authorized" switch look like half-way
+        # The real script detaches the re-probe with systemd-run; here run it inline. Instead of the
+        # pause, record what the hub port and the "authorized" switch look like half-way, and do what
+        # the kernel does while a port is off: the device, and with it the device's "port" link, is
+        # gone. (r7 wrote through that link and so never switched the port back on.)
         (mockbin / 'systemd-run').write_text(
-            '#!/bin/sh\nfor a; do last=$a; done\n'
-            'mid() { echo "port=$(cat "$REPROBE_USBDEV/port/disable" 2>/dev/null) authorized=$(cat "$REPROBE_USBDEV/authorized")" >> "$REPROBE_MID"; }\n'
-            'eval "$(echo "$last" | sed "s/sleep [0-9]*;/mid;/")"\necho ran >> "$REPROBE_LOG"\n')
+            '#!/bin/sh\nfor a; do last=$a; done\nH=$REPROBE_HUBPORT\n'
+            'mid() { echo "port=$(cat "$H/disable" 2>/dev/null) authorized=$(cat "$REPROBE_USBDEV/authorized")" >> "$REPROBE_MID"\n'
+            '  if [ "$(cat "$H/disable" 2>/dev/null)" = 1 ]; then rm -f "$REPROBE_USBDEV/port"; fi; }\n'
+            'eval "$(echo "$last" | sed "s/sleep [0-9]*;/mid;/")"\n'
+            'if [ -d "$H" ] && [ "$(cat "$H/disable")" = 0 ]; then ln -sfn "$H" "$REPROBE_USBDEV/port"; fi\n'
+            'echo ran >> "$REPROBE_LOG"\n')
         for f in ('busctl', 'systemd-run'):
             (mockbin / f).chmod(0o755)
         for n, typ in radios.items():
@@ -153,14 +158,17 @@ class StreamerTests(unittest.TestCase):
             iface.mkdir(parents=True, exist_ok=True)
             (iface.parent / 'authorized').write_text('1\n')
             if typ == 'usb' and port:                                  # the hub port's on/off switch (Linux 6.0+)
-                (iface.parent / 'port').mkdir(exist_ok=True)
-                (iface.parent / 'port/disable').write_text('0\n')
+                hubport = d / 'hub' / f'port-{n}'                      # lives in the hub's directory;
+                hubport.mkdir(parents=True, exist_ok=True)             # the device only has a link to it
+                (hubport / 'disable').write_text('0\n')
+                (iface.parent / 'port').symlink_to(hubport)
             if not (h / 'device').exists():
                 (h / 'device').symlink_to(iface)
         settings = d / 'streamer.txt'
         env = dict(os.environ, STREAMER_TXT=str(settings), BT_SYSFS=str(sysfs), BT_STATE=str(d / 'reprobe-count'),
                    BT_WAIT='0', USABLE=' '.join(usable), REPROBE_LOG=str(d / 'reprobe.log'),
                    REPROBE_MID=str(d / 'reprobe.mid'), REPROBE_USBDEV=str(d / 'usbdev-hci1'),
+                   REPROBE_HUBPORT=str(d / 'hub' / 'port-hci1'),
                    PATH=str(mockbin) + ':' + os.environ['PATH'])
         return d, sysfs, settings, env
 
@@ -194,13 +202,14 @@ class StreamerTests(unittest.TestCase):
             d, sysfs, settings, env = self._bt_env(tmp, {'hci0': 'serial', 'hci1': 'usb'}, ['hci0'])
             settings.write_text('bluetooth=auto\n')
             auth = d / 'usbdev-hci1' / 'authorized'
-            port = d / 'usbdev-hci1' / 'port/disable'
+            port = d / 'hub' / 'port-hci1' / 'disable'
             for attempt in (1, 2, 3):
                 p = subprocess.run(['/bin/sh', script], capture_output=True, text=True, env=env)
                 self.assertEqual(p.returncode, 0, p.stderr)
                 self.assertIn(f're-probing it (hub port reset), attempt {attempt} of 3', p.stdout)
                 self.assertNotIn('using=', p.stdout)                   # nothing selected yet: wait for the radio
                 self.assertEqual(port.read_text().strip(), '0', 'the hub port must end up switched back on')
+                self.assertTrue((d / 'usbdev-hci1' / 'port').is_symlink(), 'the dongle must be back')
                 self.assertEqual(auth.read_text().strip(), '1')
                 self.assertEqual((d / 'reprobe-count').read_text().strip(), str(attempt))
             self.assertEqual((d / 'reprobe.log').read_text().count('ran'), 3)

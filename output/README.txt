@@ -1,6 +1,6 @@
-Streamer — Pi Zero 2 W 64-bit image, revision r7 (2026-11-14), tested on a real Pi
+Streamer — Pi Zero 2 W 64-bit image, revision r8 (2026-11-14): r7, tested on a real Pi, plus one fix
 
-IMAGE FILE:  streamer-zero2w-r7.img.xz   (checksums: SHA256SUMS)
+IMAGE FILE:  streamer-zero2w-r8.img.xz   (checksums: SHA256SUMS)
 Flash with Raspberry Pi Imager -> Use custom, or balenaEtcher. No need to unzip. Skip OS
 customisation.
 
@@ -14,6 +14,12 @@ UB500 Bluetooth dongle). Power on PWR IN.
 
 After about a minute: http://streamer.local/ and "Streamer" as an AirPlay speaker, a Spotify
 Connect device and a Bluetooth speaker.
+
+WHAT CHANGED IN r8
+- One fix. r7's reset of a UB500 that did not start switched the dongle's hub port off and
+  then could not switch it back on (it addressed the port through the dongle's own entry,
+  which is gone once the port is off). The dongle then stayed off until the next power-on.
+  r8 addresses the port through the hub.
 
 WHAT CHANGED IN r7
 - LDAC: the Bluetooth receiver now accepts LDAC (up to 96 kHz, 990 kbps) next to SBC, AAC,
@@ -49,7 +55,7 @@ HOW THIS IMAGE FILE WAS CHECKED (details in this folder)
 - ldac-validation.txt   the image's Bluetooth receiver lists LDAC; the image's LDAC library
                         decodes what it encoded at 44.1, 48, 88.2 and 96 kHz and at all three
                         bit rates, with no decode errors.
-- review/qemu-r7.txt    the image booted three times in QEMU (raspi3b machine, Zero 2 W device
+- review/qemu-r8.txt    the image booted three times in QEMU (raspi3b machine, Zero 2 W device
                         tree, emulated USB sound and network cards), 41 of 41 checks passed:
                           1. as published: SSH off, port 22 closed, no key anywhere on the
                              card, all services up, the Bluetooth receiver running with LDAC
@@ -59,16 +65,20 @@ HOW THIS IMAGE FILE WAS CHECKED (details in this folder)
                              refused, the debug report hides both passwords;
                           3. same card again: same host keys, login still works.
 
-ON A REAL PI ZERO 2 W (2026-11-14, r7 flashed from this file)
-Seen working: boot, Wi-Fi, streamer.local, status page, read-only system, no failed service,
+ON A REAL PI ZERO 2 W (2026-11-14)
+r7, flashed: boot, Wi-Fi, streamer.local, status page, read-only system, no failed service,
 SSH password login, AirPlay and Spotify advertised, Bluetooth on the UB500, and LDAC from an
 Android phone through the JM7MAX at 96 kHz / 32-bit: about 1,025 kbps received (990 kbps of
 audio plus overhead), no lost packets, one decode error early in the session and none after.
 Volume: phone at 81% -> DAC at 81% (-14 dB).
+r8's fix, run on that Pi: told that the working dongle had not started, the script switched
+its hub port off and on; the dongle re-appeared 3.4 s later, loaded its firmware, was selected
+again and offered LDAC.
 
-NOT YET CONFIRMED ON r7 HARDWARE
-- The hub port reset running by itself: the UB500 started normally at this power-on. The same
-  reset, done by hand on r6 after a real failed start, brought the dongle up at the first try.
+NOT YET CONFIRMED
+- r8 itself has not been flashed. It differs from r7 only in that script.
+- The reset after a real failed start: the fault cannot be forced. The same port reset, done
+  by hand on r6 after a real failed start, brought the dongle up at the first try.
 - AirPlay and Spotify Connect playback (last heard on r5).
 - Bluetooth from a Mac (AAC) and SSH staying off with a short password (both seen on r6).
 Known cosmetic issue: non-ASCII characters in a Bluetooth device name show as escape codes on

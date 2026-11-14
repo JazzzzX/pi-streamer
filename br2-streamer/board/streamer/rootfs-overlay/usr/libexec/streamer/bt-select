@@ -51,7 +51,9 @@ if [ -n "$dead" ] && [ -z "$usb" ]; then
 	n=$(echo $dead | awk '{print $1}')
 	dev=$(readlink -f "$SYS/$n/device")       # USB interface, e.g. .../1-1.2/1-1.2:1.0
 	usbdev=${dev%/*}                          # its USB device
-	port=$usbdev/port/disable                 # the hub port it is plugged into
+	# The hub port it is plugged into. Resolved now, to the hub's own directory: the path
+	# through the device disappears together with the device once the port is off.
+	port=$(readlink -f "$usbdev/port")/disable
 	auth=$usbdev/authorized
 	if [ -w "$port" ]; then
 		how="hub port reset"; cmd="echo 1 > '$port'; sleep 3; echo 0 > '$port'"

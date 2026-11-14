@@ -84,13 +84,13 @@ $ netstat -ltn | grep -c ":7000 "
 
 $ wget -qO- http://127.0.0.1/ | head -c 15; echo; wget -qO- http://127.0.0.1/cgi-bin/status
 <!doctype html>
-{"host":"streamer","uptime":"0h 2m","source":"Idle","dac":{"present":true,"state":"CLOSED","rate":null,"format":"","mixer":"","volume":null,"volume_db":null},"airplay":{"wifi_kbps":null,"estimate":"Codec not verified (network traffic only)"},"bluetooth":{"adapter":"","bus":"","address":"","device":"","codec":"","format":"","sampling":null,"running":false,"nominal_kbps":null,"air_kbps":null},"wifi":{"ssid":"","signal_dbm":null,"tx_mbit":null,"freq_mhz":null,"ip":"","power_save":""},"system":{"cpu_pct":null,"load":"0.28 0.22 0.09","mem_used_mb":73,"mem_total_mb":917,"temp_c":25.1,"throttled":"","read_only":true},"services":{"nqptp.service":"active","shairport-sync.service":"active","librespot.service":"active","bluetooth.service":"inactive","streamer-bluealsa.service":"inactive","streamer-bluealsa-aplay.service":"inactive","bt-agent.service":"inactive","bt-select.service":"inactive","streamer-wifi.service":"inactive","streamer-status.service":"active","sshd.service":"inactive"}}
+{"host":"streamer","uptime":"0h 2m","source":"Idle","dac":{"present":true,"state":"CLOSED","rate":null,"format":"","mixer":"","volume":null,"volume_db":null},"airplay":{"wifi_kbps":null,"estimate":"Codec not verified (network traffic only)"},"bluetooth":{"adapter":"","bus":"","address":"","device":"","codec":"","format":"","sampling":null,"running":false,"nominal_kbps":null,"air_kbps":null},"wifi":{"ssid":"","signal_dbm":null,"tx_mbit":null,"freq_mhz":null,"ip":"","power_save":""},"system":{"cpu_pct":null,"load":"0.27 0.20 0.09","mem_used_mb":73,"mem_total_mb":917,"temp_c":25.1,"throttled":"","read_only":true},"services":{"nqptp.service":"active","shairport-sync.service":"active","librespot.service":"active","bluetooth.service":"inactive","streamer-bluealsa.service":"inactive","streamer-bluealsa-aplay.service":"inactive","bt-agent.service":"inactive","bt-select.service":"inactive","streamer-wifi.service":"inactive","streamer-status.service":"active","sshd.service":"inactive"}}
   [PASS] status page and status JSON served
   [PASS] status JSON makes no lossless claim
 
 $ journalctl -b -u avahi-daemon --no-pager -o cat | grep -iE "host name|Joining mDNS.*IPv4" | tail -n 3
 Joining mDNS multicast group on interface lo.IPv4 with address 127.0.0.1.
-Server startup complete. Host name is streamer.local. Local service cookie is 3055385936.
+Server startup complete. Host name is streamer.local. Local service cookie is 3894412928.
 Joining mDNS multicast group on interface usb0.IPv4 with address 10.0.2.15.
   [PASS] Avahi announces streamer.local on the network card
 
@@ -151,8 +151,8 @@ streamer.txt=1
   [PASS] password is hashed, and not stored in clear anywhere but streamer.txt
 
 $ for k in /data/ssh/ssh_host_ed25519_key /data/ssh/ssh_host_ecdsa_key; do ssh-keygen -lf $k | cut -d" " -f2; done; ls -ld /data/ssh /data/ssh/ssh_host_ed25519_key | cut -d" " -f1 | tr "\n" " "
-SHA256:+RSq11fJGqqd32d3N1bJWxM9iClL5iwMc3W32giHV9w
-SHA256:uTF8+cOmkGBQLgiYif1JZWc7q6eL3JNqoguY35alTak
+SHA256:K56tPKRt3SEOBZ6gQ8x34V48UxuL2DPU4ycjtc/J5uY
+SHA256:tznZ78ZH7BE8IKZixi/BS4c0qPJ2RF73VejjIedp30Y
 drwx------ -rw-------
   [PASS] host keys kept on the data partition, private
 
@@ -171,7 +171,7 @@ ssh login from outside the guest -> rc=255 out='' err='root@127.0.0.1: Permissio
 
 $ cat /boot/streamer-log.txt | head -n 14; echo ...; grep -c . /boot/streamer-log.txt
 Streamer diagnostic log (debug=1 in streamer.txt)
-uptime: 72.62 s   clock: Fri Mar 13 17:09:36 UTC 2026
+uptime: 72.62 s   clock: Fri Mar 13 17:09:37 UTC 2026
 Raspberry Pi Zero 2 W
 6.12.61-v8
 root=/dev/mmcblk0p2 rootfstype=ext4 rootwait ro console=ttyAMA1,115200 loglevel=1 net.ifnames=0 cfg80211.ieee80211_regdom=IN brcmfmac.feature_disable=0x82000 systemd.debug_shell=ttyAMA1 systemd.mask=serial-getty@ttyAMA1.service systemd.show_status=0 snd_usb_audio.id=JM7MAX
@@ -185,7 +185,7 @@ ssh_password=<hidden>
 debug=1
 
 ...
-138
+139
   [PASS] diagnostic report written, both passwords hidden
 
 $ grep " /boot " /proc/mounts | cut -d" " -f4 | cut -c1-2
@@ -197,8 +197,8 @@ BOOT 3: same card, second boot with SSH on
 ==============================================================================
 
 $ for k in /data/ssh/ssh_host_ed25519_key /data/ssh/ssh_host_ecdsa_key; do ssh-keygen -lf $k | cut -d" " -f2; done; ls -ld /data/ssh /data/ssh/ssh_host_ed25519_key | cut -d" " -f1 | tr "\n" " "
-SHA256:+RSq11fJGqqd32d3N1bJWxM9iClL5iwMc3W32giHV9w
-SHA256:uTF8+cOmkGBQLgiYif1JZWc7q6eL3JNqoguY35alTak
+SHA256:K56tPKRt3SEOBZ6gQ8x34V48UxuL2DPU4ycjtc/J5uY
+SHA256:tznZ78ZH7BE8IKZixi/BS4c0qPJ2RF73VejjIedp30Y
 drwx------ -rw-------
   [PASS] host keys unchanged after a reboot
 
