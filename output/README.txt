@@ -1,4 +1,4 @@
-Streamer — Pi Zero 2 W 64-bit image, revision r7 (2026-11-14), not yet run on a real Pi
+Streamer — Pi Zero 2 W 64-bit image, revision r7 (2026-11-14), tested on a real Pi
 
 IMAGE FILE:  streamer-zero2w-r7.img.xz   (checksums: SHA256SUMS)
 Flash with Raspberry Pi Imager -> Use custom, or balenaEtcher. No need to unzip. Skip OS
@@ -59,14 +59,20 @@ HOW THIS IMAGE FILE WAS CHECKED (details in this folder)
                              refused, the debug report hides both passwords;
                           3. same card again: same host keys, login still works.
 
-NOT CHECKED
-- r7 has not been booted on a real Pi. The emulator has no Wi-Fi chip, no Bluetooth radio and
-  no JM7MAX DAC, so these parts of r7 are untested on hardware: LDAC from a phone through this
-  decoder, the new volume mapping, and the automatic hub port reset.
-- r6, which r7 is built on, ran on the Pi on 2026-11-14: Wi-Fi, status page, SSH password
-  login, AirPlay and Spotify advertised, Bluetooth audio from a Mac (AAC). LDAC was tried on it
-  with a hand-installed receiver and a different LDAC decoder.
-- AirPlay and Spotify Connect playback were last heard on r5.
+ON A REAL PI ZERO 2 W (2026-11-14, r7 flashed from this file)
+Seen working: boot, Wi-Fi, streamer.local, status page, read-only system, no failed service,
+SSH password login, AirPlay and Spotify advertised, Bluetooth on the UB500, and LDAC from an
+Android phone through the JM7MAX at 96 kHz / 32-bit: about 1,025 kbps received (990 kbps of
+audio plus overhead), no lost packets, one decode error early in the session and none after.
+Volume: phone at 81% -> DAC at 81% (-14 dB).
+
+NOT YET CONFIRMED ON r7 HARDWARE
+- The hub port reset running by itself: the UB500 started normally at this power-on. The same
+  reset, done by hand on r6 after a real failed start, brought the dongle up at the first try.
+- AirPlay and Spotify Connect playback (last heard on r5).
+- Bluetooth from a Mac (AAC) and SSH staying off with a short password (both seen on r6).
+Known cosmetic issue: non-ASCII characters in a Bluetooth device name show as escape codes on
+the status page.
 
 SOURCE AND LICENSES
 The image is built by Buildroot 2026.08.1 from this repository; ./build.sh downloads the exact

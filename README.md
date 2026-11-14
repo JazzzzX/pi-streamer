@@ -11,11 +11,11 @@ network as **Streamer** and plays through a USB DAC:
 ## Quick start: download the image and flash it
 
 You don't need to build anything. A ready-made SD-card image is attached to the
-[r6 release](https://github.com/JazzzzX/pi-streamer/releases/tag/r6).
+[r7 release](https://github.com/JazzzzX/pi-streamer/releases/tag/r7).
 
 1. Download
-   [`streamer-zero2w-r6.img.xz`](https://github.com/JazzzzX/pi-streamer/releases/download/r6/streamer-zero2w-r6.img.xz)
-   (60 MB).
+   [`streamer-zero2w-r7.img.xz`](https://github.com/JazzzzX/pi-streamer/releases/download/r7/streamer-zero2w-r7.img.xz)
+   (62 MB).
 2. Flash it to a microSD card (1 GB or larger) with
    [Raspberry Pi Imager](https://www.raspberrypi.com/software/) ("Use custom") or
    balenaEtcher. No need to unzip it; skip Imager's OS customisation.
@@ -26,9 +26,7 @@ You don't need to build anything. A ready-made SD-card image is attached to the
 5. After about a minute, **Streamer** shows up as an AirPlay speaker, a Spotify Connect
    device and a Bluetooth speaker, and `http://streamer.local/` shows its status.
 
-r6 has been flashed and run on a real Pi Zero 2 W. It does not have LDAC. r7, which
-adds LDAC, is built and has passed its tests in the emulator, and will be released
-once it has run on a real Pi (see Status below).
+This image has been flashed and run on a real Pi Zero 2 W (see Status below).
 
 The system is a custom [Buildroot](https://buildroot.org) image, about 160 MB of
 contents, with read-only system and boot partitions. Pairings and the Spotify login
@@ -183,43 +181,42 @@ the Pi itself.
 
 ## Status
 
-**r7 (built 2026-11-14, not released yet)** adds LDAC, the one-to-one Bluetooth volume
-and the hub port reset for a UB500 that did not start. It was built from an empty
-build volume and passed every check that does not need a Pi:
+**r7 (2026-11-14)** is the released image. Compared with r6 it adds LDAC, the
+one-to-one Bluetooth volume and the hub port reset for a UB500 that did not start.
 
-- 20 host-side tests of the scripts and settings
-- on the image: unit files, filesystems, boot partition, no keys or passwords; its
-  module loader decodes the Wi-Fi, USB-audio and Bluetooth drivers; its wpa_supplicant
-  accepts the generated Wi-Fi config
-- LDAC on the image: its Bluetooth receiver lists LDAC, and its LDAC library decodes
-  what it encoded at 44.1, 48, 88.2 and 96 kHz, with no decode errors
-- 41 of 41 checks over three boots in QEMU, including the receiver starting with LDAC
-  enabled and a real SSH password login
+**r7 on a real Pi Zero 2 W (2026-11-14), flashed from the release file:**
 
-r7 has not been booted on a real Pi. In particular, nobody has yet heard LDAC through
-this decoder on the Pi, used the new volume mapping, or seen the hub port reset run
-by itself.
-
-**r6 on a real Pi Zero 2 W (2026-11-14), flashed from the release file:**
-
-- boots, joins a WPA2 2.4 GHz network and keeps the same address as before
-- `streamer.local` and the status page load; the system is read-only
+- boots, joins a WPA2 2.4 GHz network, `streamer.local` and the status page load, the
+  system is read-only and no service has failed
+- SSH password login works
 - Streamer is advertised as an AirPlay speaker and a Spotify Connect device
-- the JM7MAX DAC is detected with its `PCM` volume control
-- SSH: off with a password shorter than 8 characters; password login works with a
-  longer one
-- Bluetooth audio from a Mac plays through the DAC (AAC, 44.1 kHz)
-- the UB500 failed its firmware download at one power-on. r6's recovery (software
+- the UB500 is used for Bluetooth. It started normally at this power-on, so the hub
+  port reset has not yet run by itself.
+- LDAC from an Android phone plays through the JM7MAX at 96 kHz / 32-bit: about
+  1,025 kbps received (990 kbps of audio plus Bluetooth overhead), no lost packets,
+  the decoder using about 5% of one CPU core. The log shows one decode error early in
+  the session and none in the minutes after.
+- volume: with the phone at 81% the DAC is at 81% (-14 dB). The stock mapping would
+  have put it at -3 dB.
+
+**Seen on r6, not repeated on r7:**
+
+- Bluetooth audio from a Mac (AAC, 44.1 kHz)
+- SSH staying off with a password shorter than 8 characters
+- the UB500 failing its firmware download at power-on. r6's recovery (software
   re-plug) failed three times and Streamer fell back to the built-in radio. Switching
-  the hub port off and on by hand brought the dongle up at the first try. r7 does that
-  by itself.
-- LDAC, tried on r6 with a receiver installed by hand (and a different LDAC decoder
-  than r7's): from an Android phone at 96 kHz, the built-in radio was clean at
-  330 kbps and lost about a third of the data at 990 kbps; the UB500 carried 990 kbps
-  with no lost packets.
+  the hub port off and on by hand brought the dongle up at the first try; r7 does
+  that by itself.
+- LDAC on the built-in radio (with a hand-installed receiver and a different LDAC
+  decoder than r7's): clean at 330 kbps, about a third of the data lost at 990 kbps
 
 **Not yet confirmed on hardware:** AirPlay and Spotify Connect playback on r6 or r7
 (both played on r5).
+
+**Checks that do not need a Pi,** all passed on the r7 image: 20 host-side tests; unit
+files, filesystems, boot partition and no keys or passwords; the image's module
+loader, wpa_supplicant and LDAC library (round trip at 44.1 to 96 kHz); 41 of 41
+checks over three boots in QEMU.
 
 Known cosmetic issue: the status page shows non-ASCII characters in a Bluetooth device
 name as escape codes (for example `\342\200\231` for a curly apostrophe).
