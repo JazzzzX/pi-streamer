@@ -1,6 +1,6 @@
 #!/bin/sh
 # Optional diagnostics. With debug=1 in /boot/streamer.txt, write /boot/streamer-log.txt
-# (readable on any computer) about 1 and 4 minutes after power-on. The Wi-Fi password is never logged.
+# (readable on any computer) about 1 and 4 minutes after power-on. The Wi-Fi and SSH passwords are never logged.
 F=/boot/streamer.txt
 dbg=$(sed -n 's/^debug=//p' "$F" 2>/dev/null | head -n1 | tr -d '\r ')
 [ "$dbg" = 1 ] || exit 0
@@ -12,13 +12,13 @@ report() {
 	tr -d '\0' < /proc/device-tree/model; echo
 	uname -r; cat /proc/cmdline
 	echo; echo "== settings (password hidden)"
-	sed 's/^psk=.*/psk=<hidden>/' "$F" | grep -v '^#' | grep -v '^[[:space:]]*$'
+	sed 's/^psk=.*/psk=<hidden>/; s/^ssh_password=..*/ssh_password=<hidden>/' "$F" | grep -v '^#' | grep -v '^[[:space:]]*$'
 	echo; echo "== network interfaces"; ip addr 2>&1
 	echo; echo "== wifi device"; iw dev 2>&1; iw dev wlan0 link 2>&1
 	echo; echo "== wifi state"; wpa_cli -p /run/wpa_supplicant -i wlan0 status 2>&1
 	echo; echo "== networks seen"; wpa_cli -p /run/wpa_supplicant -i wlan0 scan_results 2>&1 | head -n 40
 	echo; echo "== services"
-	for u in streamer-wifi systemd-networkd avahi-daemon sshd streamer-status nqptp shairport-sync librespot \
+	for u in streamer-wifi systemd-networkd avahi-daemon streamer-ssh-setup sshd streamer-status nqptp shairport-sync librespot \
 		bluetooth bt-agent bt-select streamer-bluealsa streamer-bluealsa-aplay streamer-data; do
 		printf '%-26s %s\n' "$u" "$(systemctl is-active "$u" 2>/dev/null)"
 	done

@@ -1,9 +1,30 @@
-systemd unit verification: PASS (11 units)
-rootfs: 5916/32768 files (0.2% non-contiguous), 45717/131072 blocks
+systemd unit verification: PASS (12 units)
+rootfs: 5915/32768 files (0.2% non-contiguous), 45715/131072 blocks
 data: 12/16384 files (0.0% non-contiguous), 9545/65536 blocks
 == boot partition
 ::/bcm2710-rpi-zero-2-w.dtb ::/bootcode.bin ::/cmdline.txt ::/config.txt ::/fixup_cd.dat ::/overlays/ ::/start_cd.elf ::/Image ::/streamer.txt 
 root=/dev/mmcblk0p2 rootfstype=ext4 rootwait ro console=tty1 net.ifnames=0 cfg80211.ieee80211_regdom=IN brcmfmac.feature_disable=0x82000
-ssid=YOUR_WIFI_NAME psk=YOUR_WIFI_PASSWORD country=IN bluetooth=auto debug=0 
-== rootfs use
+ssid=YOUR_WIFI_NAME psk=YOUR_WIFI_PASSWORD country=IN bluetooth=auto ssh_password= debug=0 
+== nothing secret in the root filesystem
+ssh host keys: 0   authorized_keys files: 0   /root/.ssh: present
+private keys by content: 0
+root password field: *
+PermitRootLogin yes;PasswordAuthentication yes;KbdInteractiveAuthentication no;PubkeyAuthentication no;MaxAuthTries 4;HostKey /run/streamer-ssh/ssh_host_ed25519_key;HostKey /run/streamer-ssh/ssh_host_ecdsa_key;Subsystem sftp internal-sftp;
+/dev/mmcblk0p1	/boot	vfat	ro,nofail,umask=0077	0	0
+/dev/mmcblk0p3	/data	ext4	defaults,noatime,nofail,x-systemd.device-timeout=15s	0	2
+== tools the SSH setup needs
+cryptpw mkpasswd $6$R
+/work/review-rootfs/usr/bin/ssh-keygen
+/work/review-rootfs/usr/libexec/streamer/ssh-setup
+1
+[Unit];Wants=streamer-ssh-setup.service;After=streamer-ssh-setup.service;ConditionPathExists=/run/streamer-ssh/enabled;[Service];ExecStartPre=;
+== sizes
 158M
+5.6.3-AirPlay2-smi11-libdaemon-OpenSSL-Avahi-ALSA-stdout-pipe-soxr-metadata-sysconfdir:/etc
+librespot 0.8.0 VERGEN_IDEMPOTENT_OUTPUT (Built on 2026-11-1
+== key search in the packaged image (streamer-zero2w-r6.img)
+/root/.ssh above is an empty directory created by systemd's stock provisioning rules.
+text files containing a PEM private key: 0 (root filesystem, data partition, boot partition)
+PEM key markers occur only as strings inside program binaries (OpenSSH tools, libgio) and as
+the AirPort Express key that every shairport-sync build carries for classic AirPlay.
+key material from the fixed keys of images r1 to r5 (10 patterns): 0 matches in the image

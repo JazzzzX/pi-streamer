@@ -1,10 +1,9 @@
-# Streamer: key-only root login
-PermitRootLogin prohibit-password
-PasswordAuthentication no
+# Streamer: sshd only runs when ssh_password is set in streamer.txt (see ssh-setup).
+PermitRootLogin yes
+PasswordAuthentication yes
 KbdInteractiveAuthentication no
-PubkeyAuthentication yes
-AuthorizedKeysFile .ssh/authorized_keys
-HostKey /etc/ssh/ssh_host_ed25519_key
-HostKey /etc/ssh/ssh_host_ecdsa_key
-HostKey /etc/ssh/ssh_host_rsa_key
+PubkeyAuthentication no
+MaxAuthTries 4
+HostKey /run/streamer-ssh/ssh_host_ed25519_key
+HostKey /run/streamer-ssh/ssh_host_ecdsa_key
 Subsystem sftp internal-sftp

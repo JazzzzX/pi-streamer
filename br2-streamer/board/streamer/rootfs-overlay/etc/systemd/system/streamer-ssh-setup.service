@@ -1,0 +1,14 @@
+[Unit]
+Description=Streamer SSH setup (off unless ssh_password is set in streamer.txt)
+RequiresMountsFor=/boot
+Wants=streamer-data.service
+After=streamer-data.service
+Before=sshd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/streamer/ssh-setup
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

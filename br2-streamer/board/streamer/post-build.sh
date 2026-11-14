@@ -1,29 +1,26 @@
 #!/bin/sh
-# Streamer post-build: secrets, read-only fstab, locked root password, enabled services.
+# Streamer post-build: read-only fstab, locked root password, enabled services.
 set -eu
 T="${TARGET_DIR}"
-S="${BR2_EXTERNAL_STREAMER_PATH}/board/streamer/secrets"
 
 # Executable scripts and view-only web files
 chmod 0755 "$T"/usr/libexec/streamer/* "$T"/usr/share/streamer-www/cgi-bin/status
 chmod 0644 "$T"/usr/share/streamer-www/index.html
 
-# SSH host keys + authorized key (root login by key only)
-install -d -m 0700 "$T/root/.ssh"
-install -m 0600 "$S/authorized_keys" "$T/root/.ssh/authorized_keys"
-for k in ed25519 ecdsa rsa; do
-	install -m 0600 "$S/ssh_host_${k}_key" "$T/etc/ssh/ssh_host_${k}_key"
-	install -m 0644 "$S/ssh_host_${k}_key.pub" "$T/etc/ssh/ssh_host_${k}_key.pub"
-done
+# Nothing secret is built in: no SSH host keys and no login keys. Host keys are created on the
+# device (ssh-setup); remove any left in the target directory by an earlier build.
+rm -f "$T"/etc/ssh/ssh_host_*_key "$T"/etc/ssh/ssh_host_*_key.pub
+rm -rf "$T/root/.ssh"
 
-# Lock root's password (console login disabled; SSH key still works)
+# Lock root's password. SSH login is only possible with ssh_password set in streamer.txt.
 sed -i 's|^root:[^:]*:|root:*:|' "$T/etc/shadow"
 
-# Mounts: rootfs stays read-only (kernel "ro"); /boot read-only FAT; /data small writable ext4
+# Mounts: rootfs stays read-only (kernel "ro"); /boot read-only FAT, readable by root only
+# (streamer.txt holds the Wi-Fi and SSH passwords); /data small writable ext4
 mkdir -p "$T/boot" "$T/data"
 sed -i '/[[:space:]]\/boot[[:space:]]/d; /[[:space:]]\/data[[:space:]]/d' "$T/etc/fstab"
 cat >> "$T/etc/fstab" <<'FSTAB'
-/dev/mmcblk0p1	/boot	vfat	ro,nofail,umask=0022	0	0
+/dev/mmcblk0p1	/boot	vfat	ro,nofail,umask=0077	0	0
 /dev/mmcblk0p3	/data	ext4	defaults,noatime,nofail,x-systemd.device-timeout=15s	0	2
 FSTAB
 
@@ -44,7 +41,8 @@ rm -f "$T/etc/systemd/system/bt-discoverable.service" "$W/bt-discoverable.servic
 #  [Install] section; these links only document the intent. Disabled units: see
 #  /etc/systemd/system-preset/10-streamer.preset.)
 for u in streamer-wifi nqptp shairport-sync librespot bt-agent bt-select \
-	streamer-bluealsa streamer-bluealsa-aplay streamer-status streamer-data streamer-debug-log; do
+	streamer-bluealsa streamer-bluealsa-aplay streamer-status streamer-data streamer-debug-log \
+	streamer-ssh-setup; do
 	ln -sf "../$u.service" "$W/$u.service"
 done
 for u in systemd-networkd systemd-resolved systemd-timesyncd systemd-time-wait-sync \

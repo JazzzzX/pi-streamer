@@ -1,0 +1,55 @@
+#!/bin/sh
+# SSH is off by default. With ssh_password=... (8 or more characters) in streamer.txt, root can
+# log in over SSH with that password. Nothing secret is built into the image:
+# - host keys are created on first use and kept on /data, so every card has its own;
+# - the password hash goes into a RAM copy of /etc/shadow, bind-mounted over the read-only one.
+F=${STREAMER_TXT:-/boot/streamer.txt}
+RUN=${SSH_RUN:-/run/streamer-ssh}
+KEEP=${SSH_KEEP:-/data/ssh}
+SHADOW=${SSH_SHADOW:-/etc/shadow}
+BIND=${SSH_BIND:-1}
+umask 077
+
+if [ "$BIND" = 1 ]; then
+	while grep -q " $SHADOW " /proc/mounts; do umount "$SHADOW" || break; done
+fi
+rm -rf "$RUN"; mkdir -p "$RUN"
+
+pw=$(sed -n 's/^ssh_password=//p' "$F" 2>/dev/null | head -n1 | tr -d '\r')
+if [ -z "$pw" ]; then
+	echo "ssh-setup: ssh_password is not set in streamer.txt; SSH stays off"; exit 0
+fi
+if [ "${#pw}" -lt 8 ]; then
+	echo "ssh-setup: ssh_password is shorter than 8 characters; SSH stays off"; exit 0
+fi
+
+# Host keys: reuse the ones on /data, create them if missing or unreadable.
+dir=$KEEP
+if ! mkdir -p "$dir" 2>/dev/null || ! [ -w "$dir" ]; then
+	dir=$RUN/ephemeral; mkdir -p "$dir"
+	echo "ssh-setup: $KEEP is not writable; using host keys that last until power-off"
+fi
+for t in ed25519 ecdsa; do
+	k=$dir/ssh_host_${t}_key
+	if ! [ -s "$k" ] || ! ssh-keygen -y -f "$k" >/dev/null 2>&1; then
+		rm -f "$k" "$k.pub"
+		ssh-keygen -q -t "$t" -N "" -C streamer -f "$k" || { echo "ssh-setup: could not create the $t host key"; exit 1; }
+		echo "ssh-setup: created a new $t host key"
+	fi
+	cp "$k" "$RUN/ssh_host_${t}_key"
+done
+sync
+
+# Password: hash it (read from stdin, so it never appears on a command line).
+hash=$(printf '%s' "$pw" | mkpasswd -m sha512 -P 0) || hash=""
+case "$hash" in
+	'$6$'*) ;;
+	*) echo "ssh-setup: could not hash the password; SSH stays off"; exit 1 ;;
+esac
+awk -F: -v h="$hash" 'BEGIN { OFS = ":" } $1 == "root" { $2 = h; found = 1 } { print } END { exit !found }' \
+	"$SHADOW" > "$RUN/shadow" || { echo "ssh-setup: no root entry in $SHADOW; SSH stays off"; exit 1; }
+if [ "$BIND" = 1 ]; then
+	mount --bind "$RUN/shadow" "$SHADOW" || { echo "ssh-setup: could not apply the password; SSH stays off"; exit 1; }
+fi
+: > "$RUN/enabled"
+echo "ssh-setup: SSH is on (login: root, password from streamer.txt)"

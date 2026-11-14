@@ -217,6 +217,111 @@ class StreamerTests(unittest.TestCase):
             self.assertIn('using=hci0', p.stdout)
             self.assertFalse((d / 'reprobe-count').exists())
 
+    def _ssh_env(self, d, settings_text, shadow="root:*:::::::\ndaemon:*:::::::\n"):
+        d = Path(d)
+        mockbin = d / 'bin'; mockbin.mkdir(exist_ok=True)
+        # stand-in for BusyBox mkpasswd: password must arrive on stdin (-P 0), never as an argument
+        (mockbin / 'mkpasswd').write_text('#!/bin/sh\necho "$*" >> "$MKPASSWD_ARGS"\n'
+                                          'printf \'$6$testsalt$%s\\n\' "$(cat | shasum -a 256 | cut -c1-40)"\n')
+        (mockbin / 'mkpasswd').chmod(0o755)
+        (d / 'streamer.txt').write_text(settings_text)
+        (d / 'shadow').write_text(shadow)
+        env = dict(os.environ, STREAMER_TXT=str(d / 'streamer.txt'), SSH_RUN=str(d / 'run'), SSH_KEEP=str(d / 'data/ssh'),
+                   SSH_SHADOW=str(d / 'shadow'), SSH_BIND='0', MKPASSWD_ARGS=str(d / 'mkpasswd.args'),
+                   PATH=str(mockbin) + ':' + os.environ['PATH'])
+        return d, env
+
+    def _run_ssh_setup(self, env):
+        return subprocess.run(['/bin/sh', str(LIBEXEC / 'ssh-setup')], capture_output=True, text=True, env=env)
+
+    def test_ssh_is_off_by_default(self):
+        shipped = (BOARD / 'streamer.txt').read_text()
+        self.assertIn('\nssh_password=\n', shipped)                    # the published image ships with SSH off
+        for text, reason in [(shipped, 'not set'), ('ssh_password=\r\n', 'not set'), ('ssh_password=short7!\n', 'shorter than 8')]:
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as tmp:
+                d, env = self._ssh_env(tmp, text)
+                p = self._run_ssh_setup(env)
+                self.assertEqual(p.returncode, 0, p.stderr)
+                self.assertIn(reason, p.stdout)
+                self.assertFalse((d / 'run/enabled').exists())
+                self.assertFalse((d / 'data').exists(), 'no host keys are created while SSH is off')
+                self.assertFalse((d / 'run/shadow').exists())
+
+    def test_ssh_password_enables_login_with_per_device_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            password = 'corr3ct horse$battery'
+            d, env = self._ssh_env(tmp, f'ssid=x\nssh_password={password}\r\ndebug=0\n')
+            p = self._run_ssh_setup(env)
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            self.assertTrue((d / 'run/enabled').exists())
+            # password: hashed from stdin, only root's entry changed, original file untouched
+            self.assertNotIn(password, (d / 'mkpasswd.args').read_text())
+            self.assertNotIn(password, p.stdout + p.stderr)
+            lines = (d / 'run/shadow').read_text().splitlines()
+            self.assertRegex(lines[0], r'^root:\$6\$testsalt\$[0-9a-f]{40}:::::::$')
+            self.assertEqual(lines[1], 'daemon:*:::::::')
+            self.assertEqual((d / 'shadow').read_text().splitlines()[0], 'root:*:::::::')
+            self.assertEqual(oct((d / 'run/shadow').stat().st_mode & 0o777), '0o600')
+            # host keys: created on the data partition, copied for sshd, private
+            keys = {}
+            for typ in ('ed25519', 'ecdsa'):
+                kept = d / f'data/ssh/ssh_host_{typ}_key'
+                self.assertEqual(kept.read_text(), (d / f'run/ssh_host_{typ}_key').read_text())
+                self.assertEqual(oct(kept.stat().st_mode & 0o777), '0o600')
+                keys[typ] = kept.read_text()
+            self.assertIn('created a new ed25519 host key', p.stdout)
+            # second boot: same keys, nothing regenerated
+            p = self._run_ssh_setup(env)
+            self.assertNotIn('created a new', p.stdout)
+            for typ in keys:
+                self.assertEqual((d / f'data/ssh/ssh_host_{typ}_key').read_text(), keys[typ])
+            # a damaged key is replaced
+            (d / 'data/ssh/ssh_host_ed25519_key').write_text('garbage\n')
+            p = self._run_ssh_setup(env)
+            self.assertIn('created a new ed25519 host key', p.stdout)
+            self.assertNotIn('created a new ecdsa', p.stdout)
+            # a different device (fresh data partition) gets different keys
+            with tempfile.TemporaryDirectory() as other:
+                d2, env2 = self._ssh_env(other, f'ssh_password={password}\n')
+                self._run_ssh_setup(env2)
+                self.assertNotEqual((d2 / 'data/ssh/ssh_host_ecdsa_key').read_text(), keys['ecdsa'])
+            # removing the password switches SSH off again
+            (d / 'streamer.txt').write_text('ssh_password=\n')
+            p = self._run_ssh_setup(env)
+            self.assertFalse((d / 'run/enabled').exists())
+            self.assertFalse((d / 'run/shadow').exists())
+
+    def test_ssh_setup_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:                     # no root entry to put the password on
+            d, env = self._ssh_env(tmp, 'ssh_password=longenough1\n', shadow='daemon:*:::::::\n')
+            p = self._run_ssh_setup(env)
+            self.assertNotEqual(p.returncode, 0)
+            self.assertFalse((d / 'run/enabled').exists())
+        with tempfile.TemporaryDirectory() as tmp:                     # hashing tool broken
+            d, env = self._ssh_env(tmp, 'ssh_password=longenough1\n')
+            (d / 'bin/mkpasswd').write_text('#!/bin/sh\nexit 1\n')
+            p = self._run_ssh_setup(env)
+            self.assertNotEqual(p.returncode, 0)
+            self.assertFalse((d / 'run/enabled').exists())
+
+    def test_nothing_secret_is_built_into_the_image(self):
+        post = (BOARD / 'post-build.sh').read_text()
+        self.assertNotIn('secrets', post)
+        self.assertNotIn('authorized_keys', post)
+        self.assertIn("root:*:", post)                                 # root password locked in the image
+        tracked = subprocess.run(['git', 'ls-files'], cwd=BASE, capture_output=True, text=True).stdout.split()
+        self.assertTrue(tracked)
+        bad = [f for f in tracked if 'ssh_host' in f or 'authorized_keys' in f or '/secrets/' in f or f.endswith(('.img', '.xz', '.pem'))]
+        self.assertEqual(bad, [])
+        sshd = (OVERLAY / 'etc/ssh/sshd_config').read_text()
+        self.assertIn('HostKey /run/streamer-ssh/ssh_host_ed25519_key', sshd)
+        self.assertNotIn('/etc/ssh/ssh_host', sshd)
+        dropin = (UNITS / 'sshd.service.d/streamer.conf').read_text()
+        self.assertIn('ConditionPathExists=/run/streamer-ssh/enabled', dropin)
+        self.assertIn('After=streamer-ssh-setup.service', dropin)
+        self.assertIn('\nExecStartPre=\n', dropin)                     # no "ssh-keygen -A" on the read-only root
+        self.assertIn('umask=0077', post)                              # streamer.txt readable by root only
+
     def test_wifi_config_generation(self):
         text = (LIBEXEC / 'wifi-config').read_text()
         with tempfile.TemporaryDirectory() as d:
@@ -252,13 +357,15 @@ class StreamerTests(unittest.TestCase):
             p = sh(script, '0', '0')
             self.assertEqual(p.returncode, 0)
             self.assertFalse((d / 'saved.txt').exists(), 'debug=0 must write nothing')
-            settings.write_text('ssid=HomeNet\npsk=TopSecret123\ndebug=1\n')
+            settings.write_text('ssid=HomeNet\npsk=TopSecret123\nssh_password=AlsoSecret456\ndebug=1\n')
             p = sh(script, '0', '0')
             self.assertEqual(p.returncode, 0, p.stderr)
             saved = (d / 'saved.txt').read_text(errors='replace')
             self.assertIn('ssid=HomeNet', saved)
             self.assertIn('psk=<hidden>', saved)
+            self.assertIn('ssh_password=<hidden>', saved)
             self.assertNotIn('TopSecret123', saved)
+            self.assertNotIn('AlsoSecret456', saved)
 
     def test_boot_configuration(self):
         cmdline = (BOARD / 'cmdline.txt').read_text().split()
@@ -279,7 +386,7 @@ class StreamerTests(unittest.TestCase):
         self.assertIn('with-avahi', librespot)                        # one mDNS responder only (Avahi)
         self.assertNotIn('with-libmdns', librespot)
         settings = (BOARD / 'streamer.txt').read_text()
-        for key in ['ssid=', 'psk=', 'country=IN', 'bluetooth=auto', 'debug=']:
+        for key in ['ssid=', 'psk=', 'country=IN', 'bluetooth=auto', 'ssh_password=', 'debug=0']:
             self.assertIn('\n' + key, settings)
 
     def test_units(self):
@@ -302,6 +409,9 @@ class StreamerTests(unittest.TestCase):
         web = (UNITS / 'streamer-status.service').read_text()
         for key in ['User=streamer-web', 'ProtectSystem=strict', 'NoNewPrivileges=yes', 'RuntimeDirectory=streamer-web']:
             self.assertIn(key, web)
+        network = (OVERLAY / 'etc/systemd/network/30-wlan0.network').read_text()
+        self.assertIn('DHCP=yes', network)
+        self.assertIn('ClientIdentifier=mac', network)             # same address at every boot
         resolved = (OVERLAY / 'etc/systemd/resolved.conf.d/streamer.conf').read_text()
         self.assertIn('MulticastDNS=no', resolved)                     # Avahi is the only mDNS responder
         rules = (OVERLAY / 'etc/udev/rules.d/99-streamer-dac.rules').read_text()

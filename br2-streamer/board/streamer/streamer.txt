@@ -13,6 +13,10 @@ country=IN
 #   off     = no Bluetooth
 bluetooth=auto
 
+# SSH login for troubleshooting. Empty = SSH off. Set a password of 8 or more
+# characters to allow:  ssh root@streamer.local
+ssh_password=
+
 # Troubleshooting: 1 = save a report as streamer-log.txt on this drive
 # 1 and 4 minutes after power-on (wait 5 minutes before unplugging). 0 = off.
 debug=0

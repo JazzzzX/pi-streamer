@@ -3,3 +3,8 @@ Name=wlan0
 
 [Network]
 DHCP=yes
+
+[DHCPv4]
+# The machine id is new at every boot (read-only root), so identify by MAC address:
+# the router then hands out the same address each time.
+ClientIdentifier=mac

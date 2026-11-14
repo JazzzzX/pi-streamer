@@ -1,0 +1,216 @@
+cmdline.txt: root=/dev/mmcblk0p2 rootfstype=ext4 rootwait ro console=tty1 net.ifnames=0 cfg80211.ieee80211_regdom=IN brcmfmac.feature_disable=0x82000
+boot partition: ['::/bcm2710-rpi-zero-2-w.dtb', '::/bootcode.bin', '::/cmdline.txt', '::/config.txt', '::/fixup_cd.dat', '::/overlays/', '::/start_cd.elf', '::/Image', '::/streamer.txt']
+  [PASS] published streamer.txt has placeholders, SSH off, debug off
+
+==============================================================================
+BOOT 1: image as published
+==============================================================================
+
+$ uname -r; cat /proc/device-tree/model; echo
+6.12.61-v8
+Raspberry Pi Zero 2 W
+  [PASS] kernel and model
+
+$ grep -E " (/|/var|/boot|/data) " /proc/mounts
+/dev/root / ext4 ro,relatime 0 0
+tmpfs /var tmpfs rw,nosuid,nodev,relatime,nr_inodes=1048576 0 0
+/dev/mmcblk0p1 /boot vfat ro,relatime,fmask=0077,dmask=0077,codepage=437,iocharset=ascii,shortname=mixed,errors=remount-ro 0 0
+/dev/mmcblk0p3 /data ext4 rw,noatime 0 0
+  [PASS] root and boot read-only, data writable
+
+$ touch /etc/x 2>&1; echo rc=$?
+touch: /etc/x: Read-only file system
+rc=1
+  [PASS] root filesystem refuses writes
+
+$ ls -ld /boot/streamer.txt | awk "{print \$1, \$3}"; su -s /bin/sh streamer-web -c "cat /boot/streamer.txt" 2>&1 | tail -n1
+-rwx------ root
+cat: can't open '/boot/streamer.txt': Permission denied
+  [PASS] streamer.txt readable by root only
+
+$ systemctl --failed --no-legend --plain --no-pager --full | awk "{print \$1}"
+systemd-networkd-wait-online.service
+  [PASS] only the network wait fails (no Wi-Fi chip in the emulator)
+
+$ for u in dbus avahi-daemon systemd-networkd systemd-resolved systemd-timesyncd nqptp streamer-data streamer-status shairport-sync librespot streamer-ssh-setup; do printf "%s=%s " $u $(systemctl is-active $u); done; echo
+dbus=active avahi-daemon=active systemd-networkd=active systemd-resolved=active systemd-timesyncd=active nqptp=active streamer-data=active streamer-status=active shairport-sync=active librespot=active streamer-ssh-setup=active
+  [PASS] core services active
+
+$ for u in sshd; do printf "%s=%s " $u $(systemctl is-active $u); done; echo
+sshd=inactive
+  [PASS] sshd is not running
+
+$ journalctl -b -u streamer-ssh-setup --no-pager -o cat | grep ssh-setup:
+ssh-setup: ssh_password is not set in streamer.txt; SSH stays off
+  [PASS] ssh-setup says why
+
+$ netstat -ltn | grep -c ":22 "
+0
+  [PASS] nothing listens on port 22
+
+$ echo "etc: $(ls /etc/ssh | tr "\n" " ")"; echo "files-under-root-home=$(find /root -type f | wc -l)"; echo "data: $(ls /data | tr "\n" " ")"; echo "ssh-state-files=$(ls /run/streamer-ssh | wc -l)"; echo "key-files=$(find / /data /boot -xdev \( -name "ssh_host_*" -o -name authorized_keys -o -name "id_*" \) 2>/dev/null | wc -l)"
+etc: moduli ssh_config ssh_config.d sshd_config 
+files-under-root-home=0
+data: bluetooth librespot lost+found 
+ssh-state-files=0
+key-files=0
+  [PASS] no host keys, login keys or SSH state anywhere on the card
+
+$ grep "^root:" /etc/shadow | cut -d: -f2
+*
+  [PASS] root password locked
+
+$ IF=$(ls /sys/class/net | grep -vE "^(lo|wlan0)$" | head -n1); echo "card=$IF"; mkdir -p /run/systemd/network; sed "s/^Name=wlan0/Name=$IF/" /etc/systemd/network/30-wlan0.network > /run/systemd/network/20-test.network; cat /run/systemd/network/20-test.network | tr "\n" " "; echo; networkctl reload; i=0; while [ $i -lt 30 ]; do ip -4 -o addr show dev $IF | grep -q "inet " && break; sleep 1; i=$((i+1)); done; ip -4 -o addr show dev $IF | awk "{print \"address=\" \$4}"
+card=usb0
+[Match] Name=usb0  [Network] DHCP=yes  [DHCPv4] # The machine id is new at every boot (read-only root), so identify by MAC address: # the router then hands out the same address each time. ClientIdentifier=mac 
+address=10.0.2.15/24
+  [PASS] DHCP lease obtained with ClientIdentifier=mac
+
+ssh login from outside the guest -> rc=255 out='' err='kex_exchange_identification: read: Connection reset by peer'
+  [PASS] login from outside is impossible
+
+$ cat /proc/asound/cards | head -n1
+ 0 [JM7MAX         ]: USB-Audio - QEMU USB Audio
+  [PASS] emulated DAC is the JM7MAX card
+
+$ ps -o args= | grep -E "^/usr/bin/(librespot|shairport)" | cut -c1-120
+/usr/bin/librespot --name Streamer --device-type speaker --bitrate 320 --backend alsa --device hw:CARD=JM7MAX --mixer so
+/usr/bin/shairport-sync -c /run/streamer-airplay/shairport-sync.conf
+  [PASS] players running on the DAC
+
+$ netstat -ltn | grep -c ":7000 "
+2
+  [PASS] AirPlay port open
+
+$ wget -qO- http://127.0.0.1/ | head -c 15; echo; wget -qO- http://127.0.0.1/cgi-bin/status
+<!doctype html>
+{"host":"streamer","uptime":"0h 2m","source":"Idle","dac":{"present":true,"state":"CLOSED","rate":null,"format":"","mixer":"","volume":null,"volume_db":null},"airplay":{"wifi_kbps":null,"estimate":"Codec not verified (network traffic only)"},"bluetooth":{"adapter":"","bus":"","address":"","device":"","codec":"","format":"","sampling":null,"running":false,"nominal_kbps":null,"air_kbps":null},"wifi":{"ssid":"","signal_dbm":null,"tx_mbit":null,"freq_mhz":null,"ip":"","power_save":""},"system":{"cpu_pct":null,"load":"0.17 0.08 0.02","mem_used_mb":72,"mem_total_mb":917,"temp_c":25.1,"throttled":"","read_only":true},"services":{"nqptp.service":"active","shairport-sync.service":"active","librespot.service":"active","bluetooth.service":"inactive","streamer-bluealsa.service":"inactive","streamer-bluealsa-aplay.service":"inactive","bt-agent.service":"inactive","bt-select.service":"inactive","streamer-wifi.service":"inactive","streamer-status.service":"active","sshd.service":"inactive"}}
+  [PASS] status page and status JSON served
+  [PASS] status JSON makes no lossless claim
+
+$ journalctl -b -u avahi-daemon --no-pager -o cat | grep -iE "host name|Joining mDNS.*IPv4" | tail -n 3
+Joining mDNS multicast group on interface lo.IPv4 with address 127.0.0.1.
+Server startup complete. Host name is streamer.local. Local service cookie is 921955033.
+Joining mDNS multicast group on interface usb0.IPv4 with address 10.0.2.15.
+  [PASS] Avahi announces streamer.local on the network card
+
+$ journalctl -b -u librespot --no-pager -o cat | grep -iE "zeroconf|error" | tail -n 3
+[2026-03-13T17:10:41Z INFO  librespot_discovery] Published zeroconf service
+  [PASS] Spotify published through Avahi
+
+$ for u in shairport-sync librespot avahi-daemon; do printf "%s=%s " $u $(systemctl is-active $u); done; echo
+shairport-sync=active librespot=active avahi-daemon=active
+
+$ for u in shairport-sync librespot; do echo "$u restarts=$(systemctl show -p NRestarts --value $u)"; done
+shairport-sync restarts=0
+librespot restarts=0
+  [PASS] players still active with the network up
+
+$ modprobe bluetooth; sleep 2; systemctl start bluetooth.target; sleep 14; for u in bluetooth bt-agent bt-select streamer-bluealsa streamer-bluealsa-aplay; do printf "%s=%s " $u $(systemctl is-active $u); done; echo
+bluetooth=active bt-agent=active bt-select=active streamer-bluealsa=active streamer-bluealsa-aplay=active
+  [PASS] Bluetooth service chain starts once a Bluetooth stack exists
+
+$ grep -c " /var/lib/bluetooth " /proc/$(pidof bluetoothd)/mountinfo
+1
+  [PASS] pairings are stored on the data partition
+
+$ ls /boot/streamer-log.txt 2>&1 | tail -n1
+ls: /boot/streamer-log.txt: No such file or directory
+  [PASS] no diagnostic report written (debug=0)
+
+==============================================================================
+BOOT 2: ssh_password and debug=1 set in streamer.txt
+==============================================================================
+
+$ journalctl -b -u streamer-ssh-setup --no-pager -o cat | grep ssh-setup:
+ssh-setup: created a new ed25519 host key
+ssh-setup: created a new ecdsa host key
+ssh-setup: SSH is on (login: root, password from streamer.txt)
+  [PASS] ssh-setup enabled SSH and created keys
+
+$ for u in sshd; do printf "%s=%s " $u $(systemctl is-active $u); done; echo
+sshd=active
+  [PASS] sshd running
+
+$ i=0; while [ $i -lt 60 ]; do netstat -ltn | grep -q ":22 " && break; sleep 1; i=$((i+1)); done; netstat -ltn | grep -q ":22 " && echo open || echo closed
+open
+  [PASS] sshd listening on port 22
+
+$ echo "hash=$(grep '^root:' /etc/shadow | cut -d: -f2 | cut -c1-3)"; echo "files-with-password=$(find /run /data /var /tmp -xdev -type f ! -path '/run/log/*' 2>/dev/null | xargs grep -lF 'qemu-Test pw$42' 2>/dev/null | wc -l)"; echo "journal-lines-with-password=$(journalctl -b --no-pager | grep -cF 'qemu-Test pw$42')"; echo "streamer.txt=$(grep -cF 'ssh_password=qemu-Test pw$42' /boot/streamer.txt)"
+hash=$6$
+files-with-password=0
+journal-lines-with-password=0
+streamer.txt=1
+  [PASS] password is hashed, and not stored in clear anywhere but streamer.txt
+
+$ for k in /data/ssh/ssh_host_ed25519_key /data/ssh/ssh_host_ecdsa_key; do ssh-keygen -lf $k | cut -d" " -f2; done; ls -ld /data/ssh /data/ssh/ssh_host_ed25519_key | cut -d" " -f1 | tr "\n" " "
+SHA256:/1ZiMb/IFy78d8V7XyVbwpCgRlkNBSE+VuTGfXO6+qU
+SHA256:m+bD5qJwXfehz8mJMNohiTG575gX9NREaduMTauIEnE
+drwx------ -rw-------
+  [PASS] host keys kept on the data partition, private
+
+$ IF=$(ls /sys/class/net | grep -vE "^(lo|wlan0)$" | head -n1); echo "card=$IF"; mkdir -p /run/systemd/network; sed "s/^Name=wlan0/Name=$IF/" /etc/systemd/network/30-wlan0.network > /run/systemd/network/20-test.network; cat /run/systemd/network/20-test.network | tr "\n" " "; echo; networkctl reload; i=0; while [ $i -lt 30 ]; do ip -4 -o addr show dev $IF | grep -q "inet " && break; sleep 1; i=$((i+1)); done; ip -4 -o addr show dev $IF | awk "{print \"address=\" \$4}"
+card=usb0
+[Match] Name=usb0  [Network] DHCP=yes  [DHCPv4] # The machine id is new at every boot (read-only root), so identify by MAC address: # the router then hands out the same address each time. ClientIdentifier=mac 
+address=10.0.2.15/24
+  [PASS] network card up for the login test
+
+ssh login from outside the guest -> rc=0 out='0\nstreamer' err=''
+  [PASS] login with the password from streamer.txt works
+
+ssh login from outside the guest -> rc=255 out='' err='root@127.0.0.1: Permission denied (password).'
+  [PASS] wrong password is refused
+  [PASS] login without a password is refused
+
+$ cat /boot/streamer-log.txt | head -n 14; echo ...; grep -c . /boot/streamer-log.txt
+Streamer diagnostic log (debug=1 in streamer.txt)
+uptime: 72.81 s   clock: Fri Mar 13 17:09:37 UTC 2026
+Raspberry Pi Zero 2 W
+6.12.61-v8
+root=/dev/mmcblk0p2 rootfstype=ext4 rootwait ro console=ttyAMA1,115200 loglevel=1 net.ifnames=0 cfg80211.ieee80211_regdom=IN brcmfmac.feature_disable=0x82000 systemd.debug_shell=ttyAMA1 systemd.mask=serial-getty@ttyAMA1.service systemd.show_status=0 snd_usb_audio.id=JM7MAX
+
+== settings (password hidden)
+ssid=YOUR_WIFI_NAME
+psk=<hidden>
+country=IN
+bluetooth=auto
+ssh_password=<hidden>
+debug=1
+
+...
+139
+  [PASS] diagnostic report written, both passwords hidden
+
+$ grep " /boot " /proc/mounts | cut -d" " -f4 | cut -c1-2
+ro
+  [PASS] boot partition read-only again after the report
+
+==============================================================================
+BOOT 3: same card, second boot with SSH on
+==============================================================================
+
+$ for k in /data/ssh/ssh_host_ed25519_key /data/ssh/ssh_host_ecdsa_key; do ssh-keygen -lf $k | cut -d" " -f2; done; ls -ld /data/ssh /data/ssh/ssh_host_ed25519_key | cut -d" " -f1 | tr "\n" " "
+SHA256:/1ZiMb/IFy78d8V7XyVbwpCgRlkNBSE+VuTGfXO6+qU
+SHA256:m+bD5qJwXfehz8mJMNohiTG575gX9NREaduMTauIEnE
+drwx------ -rw-------
+  [PASS] host keys unchanged after a reboot
+
+$ journalctl -b -u streamer-ssh-setup --no-pager -o cat | grep ssh-setup:
+ssh-setup: SSH is on (login: root, password from streamer.txt)
+  [PASS] no new keys were created
+
+$ IF=$(ls /sys/class/net | grep -vE "^(lo|wlan0)$" | head -n1); echo "card=$IF"; mkdir -p /run/systemd/network; sed "s/^Name=wlan0/Name=$IF/" /etc/systemd/network/30-wlan0.network > /run/systemd/network/20-test.network; cat /run/systemd/network/20-test.network | tr "\n" " "; echo; networkctl reload; i=0; while [ $i -lt 30 ]; do ip -4 -o addr show dev $IF | grep -q "inet " && break; sleep 1; i=$((i+1)); done; ip -4 -o addr show dev $IF | awk "{print \"address=\" \$4}"
+card=usb0
+[Match] Name=usb0  [Network] DHCP=yes  [DHCPv4] # The machine id is new at every boot (read-only root), so identify by MAC address: # the router then hands out the same address each time. ClientIdentifier=mac 
+address=10.0.2.15/24
+
+$ i=0; while [ $i -lt 60 ]; do netstat -ltn | grep -q ":22 " && break; sleep 1; i=$((i+1)); done; netstat -ltn | grep -q ":22 " && echo open || echo closed
+open
+  [PASS] sshd listening on port 22 after the reboot
+
+ssh login from outside the guest -> rc=0 out='0\nstreamer' err=''
+  [PASS] login still works
+
+==============================================================================
+40 of 40 checks passed
+EXIT=0

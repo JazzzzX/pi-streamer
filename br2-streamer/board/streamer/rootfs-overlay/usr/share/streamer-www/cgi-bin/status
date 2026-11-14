@@ -170,6 +170,6 @@ kv system; printf '{'; nval cpu_pct "$cpu"; printf ','; sval load "$l1 $l2 $l3";
 kv services; printf '{'
 systemctl show -p Id -p LoadState -p ActiveState \
 	nqptp shairport-sync raspotify librespot bluetooth bluealsa bluealsa-aplay \
-	streamer-bluealsa streamer-bluealsa-aplay bt-agent bt-select streamer-wifi streamer-status 2>/dev/null |
+	streamer-bluealsa streamer-bluealsa-aplay bt-agent bt-select streamer-wifi streamer-status sshd 2>/dev/null |
 	awk -F= '/^Id=/{id=$2} /^LoadState=/{ls=$2} /^ActiveState=/{ if (ls!="not-found" && ls!="masked") { printf "%s\"%s\":\"%s\"", sep, id, $2; sep="," } }'
 printf '}}\n'

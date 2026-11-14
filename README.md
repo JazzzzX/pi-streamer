@@ -28,7 +28,7 @@ DAC needs those changed.
 
 1. Flash the `.img.xz` with Raspberry Pi Imager ("Use custom") or balenaEtcher.
 2. Open the `STREAMER` drive and edit `streamer.txt`: `ssid`, `psk`, `country`,
-   `bluetooth` (`auto`, `usb`, `builtin` or `off`).
+   `bluetooth` (`auto`, `usb`, `builtin` or `off`), and optionally `ssh_password`.
 3. Boot. After about a minute: `http://streamer.local/`, and Streamer shows up as an
    AirPlay speaker, a Spotify Connect device and a Bluetooth speaker.
 
@@ -36,7 +36,12 @@ If it does not join Wi-Fi, set `debug=1` in `streamer.txt`. The Pi then saves
 `streamer-log.txt` on the `STREAMER` drive 1 and 4 minutes after power-on (the Wi-Fi
 password is not written to it).
 
-`output/README.txt` describes the current image revision (r5) in detail.
+SSH is off unless `ssh_password` (8 or more characters) is set in `streamer.txt`.
+With it set, log in with `ssh root@streamer.local` and that password. Nothing secret
+is built into the image: each card creates its own SSH host keys the first time SSH
+is switched on and keeps them on its data partition.
+
+`output/README.txt` describes the current image revision in detail.
 
 ## Layout
 
@@ -46,66 +51,49 @@ password is not written to it).
 | `br2-streamer/board/streamer/streamer.txt` | The settings file that ends up on the boot partition |
 | `buildroot-backports/` | `shairport-sync`, `nqptp` and `libplist` package files taken from Buildroot master (commit `dc102467`), because 2026.08.1 only has shairport-sync 4.3.7 |
 | `status-page/` | Source of the status page; the overlay holds an identical copy (a test checks this) |
-| `Dockerfile`, `run.sh`, `build-updated.sh` | Build container and build commands |
-| `test-streamer.py` | 13 host-side tests of the scripts and settings |
+| `Dockerfile`, `build.sh`, `run.sh` | Build container, the build itself, and a helper to run commands in the Buildroot tree |
+| `test-streamer.py` | 17 host-side tests of the scripts and settings |
 | `check-image-modules.sh`, `check-image-wifi.sh` | Checks run against the built image with its own ARM64 binaries |
-| `qemu-test/` | Boots the built SD image in QEMU and inspects it |
-| `output/` | Notes, checksums, resolved Buildroot config and check results for r5. The image files themselves are not in the repository. |
+| `qemu-test/` | Boots the built SD image in QEMU three times and checks it from inside and over SSH |
+| `output/` | Notes, checksums, resolved Buildroot config and check results for the current image. The image files themselves are not in the repository. |
 | `pi-os-setup/` | Scripts from the earlier hand-built Raspberry Pi OS setup, for reference |
 
 ## Building
 
-The image was built on an Apple Silicon Mac inside a Linux container, with the
-Buildroot tree and output kept in a Docker volume named `streamer-br`. These are the
-steps that were used. A rebuild from a fresh clone of this repository has not been
-tried.
-
 ```sh
-# 1. Build container and volume
-docker build -t streamer-br-builder .
-docker volume create streamer-br
-docker run --rm -u 0 -v streamer-br:/work streamer-br-builder chown 1000:1000 /work
-
-# 2. Buildroot 2026.08.1 (commit 7fdeadb3b9f12f78e5fccca914d7fef47090ab9a)
-docker run --rm -v streamer-br:/work streamer-br-builder \
-  git clone --depth 1 --branch 2026.08.1 https://gitlab.com/buildroot.org/buildroot.git /work/buildroot
-
-# 3. Secrets (not in the repository): SSH host keys and the key allowed to log in as root
-S=br2-streamer/board/streamer/secrets; mkdir -p $S
-ssh-keygen -q -t ed25519 -N "" -C streamer -f $S/ssh_host_ed25519_key
-ssh-keygen -q -t ecdsa   -N "" -C streamer -f $S/ssh_host_ecdsa_key
-ssh-keygen -q -t rsa -b 3072 -N "" -C streamer -f $S/ssh_host_rsa_key
-cp ~/.ssh/id_ed25519.pub $S/authorized_keys
-
-# 4. Build (copies the backports in, then runs Buildroot)
-./build-updated.sh
-
-# 5. Copy the image out of the volume
-docker run --rm -v streamer-br:/work -v "$PWD/output:/out" streamer-br-builder \
-  cp /work/out/images/sdcard.img /out/streamer-zero2w.img
+./build.sh
 ```
 
-`run.sh` runs a command in the build container and expects this checkout at
-`~/streamer-buildroot`.
+This needs Docker. It builds the build container, keeps the Buildroot tree, downloads
+and build output in a Docker volume named `streamer-br` (about 20 GB), fetches
+Buildroot 2026.08.1, copies in the three backported packages, builds, and writes
+`output/streamer-zero2w.img`. A first build takes one to two hours or more, most of it
+downloading and compiling. It was last run from an empty volume on an Apple Silicon
+Mac (Colima, 8 CPUs, 12 GB).
 
-Every image built this way carries the same SSH host keys and accepts the same login
-key, so an image is personal: do not hand it to someone else without new secrets.
+Later runs reuse the volume and pick up changes to the root filesystem overlay. Other
+changes need one package rebuilt first; the comments at the top of `build.sh` list
+which. `./run.sh '<command>'` runs a command inside the Buildroot tree.
 
 ## Tests
 
 ```sh
 python3 test-streamer.py          # scripts and settings; no Pi, no network
 
+# against the built image, using its own ARM64 binaries
 docker run --rm -u0 -v streamer-br:/work -v "$PWD/check-image-modules.sh:/c.sh:ro" streamer-br-builder bash /c.sh
 docker run --rm -u0 -v streamer-br:/work -v "$PWD/check-image-wifi.sh:/c.sh:ro"    streamer-br-builder bash /c.sh
 
+# boot the image in QEMU; exit status 0 means every check passed
 docker build -t streamer-qemu qemu-test
-docker run --rm -u0 -v streamer-br:/work -v "$PWD/qemu-test/boot-test.py:/boot-test.py:ro" streamer-qemu \
-  python3 /boot-test.py bcm2710-rpi-zero-2-w.dtb "net.ifnames=0 snd_usb_audio.id=JM7MAX"
+docker run --rm -u0 -v streamer-br:/work -v "$PWD/qemu-test/boot-test.py:/boot-test.py:ro" streamer-qemu python3 /boot-test.py
 ```
 
-The QEMU boot has no Wi-Fi chip, no Bluetooth radio and no JM7MAX, so those are only
-proven on the Pi itself.
+The QEMU test boots one copy of the image three times: as published (SSH must be
+off and no key may exist), with `ssh_password` set (a real password login must work
+and a wrong password must fail), and once more (the host keys must be unchanged).
+QEMU has no Wi-Fi chip, no Bluetooth radio and no JM7MAX, so those are only proven on
+the Pi itself.
 
 ## Things learned the hard way
 
@@ -123,7 +111,14 @@ proven on the Pi itself.
 
 ## Status
 
-r5 was flashed and booted on the Pi on 2026-11-13: Wi-Fi, `streamer.local`, SSH, the
-status page, AirPlay, Spotify Connect and Bluetooth on the UB500 all came up, with
-no failed services. The Bluetooth dongle recovery has only been exercised by
-simulating a dead dongle on the Pi, because the real failure is intermittent.
+r6 is the first image with nothing personal built in, and the one published under
+Releases. It passed the tests above, including the three QEMU boots with a real SSH
+password login, but it has not yet been booted on a real Pi.
+
+Its predecessor r5 was flashed and ran on the Pi on 2026-11-13: Wi-Fi,
+`streamer.local`, the status page, AirPlay, Spotify Connect and Bluetooth on the UB500
+all came up, with no failed services. r6 differs from r5 in the SSH setup, in how the
+Pi identifies itself to the router, and in one line of the status page.
+
+The Bluetooth dongle recovery has only been exercised by simulating a dead dongle on
+the Pi, because the real failure is intermittent.

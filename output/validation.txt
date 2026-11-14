@@ -4,16 +4,20 @@ The UB500 failure seen on the Pi: hci1 exists but its firmware never loaded, so 
 test_debug_log_is_opt_in_and_hides_password (__main__.StreamerTests.test_debug_log_is_opt_in_and_hides_password) ... ok
 test_json_escaping (__main__.StreamerTests.test_json_escaping) ... ok
 test_mixer_detection (__main__.StreamerTests.test_mixer_detection) ... ok
+test_nothing_secret_is_built_into_the_image (__main__.StreamerTests.test_nothing_secret_is_built_into_the_image) ... ok
 test_players_fall_back_to_software_volume (__main__.StreamerTests.test_players_fall_back_to_software_volume) ... ok
 test_players_wait_for_dac (__main__.StreamerTests.test_players_wait_for_dac) ... ok
 test_players_with_hardware_mixer (__main__.StreamerTests.test_players_with_hardware_mixer) ... ok
 test_radio_policy (__main__.StreamerTests.test_radio_policy) ... ok
 test_script_syntax (__main__.StreamerTests.test_script_syntax) ... ok
+test_ssh_is_off_by_default (__main__.StreamerTests.test_ssh_is_off_by_default) ... ok
+test_ssh_password_enables_login_with_per_device_keys (__main__.StreamerTests.test_ssh_password_enables_login_with_per_device_keys) ... ok
+test_ssh_setup_fails_closed (__main__.StreamerTests.test_ssh_setup_fails_closed) ... ok
 test_status_page_makes_no_lossless_claims (__main__.StreamerTests.test_status_page_makes_no_lossless_claims) ... ok
 test_units (__main__.StreamerTests.test_units) ... ok
 test_wifi_config_generation (__main__.StreamerTests.test_wifi_config_generation) ... ok
 
 ----------------------------------------------------------------------
-Ran 13 tests in 6.399s
+Ran 17 tests in 4.708s
 
 OK
