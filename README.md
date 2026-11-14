@@ -26,8 +26,8 @@ You don't need to build anything. A ready-made SD-card image is attached to the
 5. After about a minute, **Streamer** shows up as an AirPlay speaker, a Spotify Connect
    device and a Bluetooth speaker, and `http://streamer.local/` shows its status.
 
-The image is a pre-release: it passed every emulator test but has not yet been booted
-on a real Pi. The details are below.
+This image passed every emulator test but has not yet been booted on a real Pi. The
+details are below.
 
 The system is a custom [Buildroot](https://buildroot.org) image, about 160 MB of
 contents, with read-only system and boot partitions. Pairings and the Spotify login
