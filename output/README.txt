@@ -1,4 +1,4 @@
-Streamer — Pi Zero 2 W 64-bit image, revision r6 (2026-11-14)
+Streamer — Pi Zero 2 W 64-bit image, revision r6 (2026-11-14), tested on a real Pi
 
 IMAGE FILE:  streamer-zero2w-r6.img.xz   (checksums: SHA256SUMS)
 Flash with Raspberry Pi Imager -> Use custom, or balenaEtcher. No need to unzip. Skip OS
@@ -50,12 +50,19 @@ HOW THIS IMAGE FILE WAS CHECKED (details in this folder)
                              refused, the debug report hides both passwords;
                           3. same card again: same host keys, login still works.
 
-NOT CHECKED
-- r6 has not been booted on a real Pi yet. The emulator has no Wi-Fi chip, no Bluetooth radio
-  and no JM7MAX DAC. r5, which differs from r6 only in the points listed above, was flashed and
-  ran on the Pi on 2026-11-13 with Wi-Fi, AirPlay, Spotify and Bluetooth working.
-- The UB500 recovery has not yet met a real failed power-on; it was exercised on the Pi by
-  making the script treat the working dongle as dead.
+ON A REAL PI ZERO 2 W (2026-11-14, r6 flashed from the release file)
+Seen working: boot, Wi-Fi (WPA2, 2.4 GHz, same address as before), streamer.local, status page,
+read-only system, AirPlay and Spotify advertised, JM7MAX detected (PCM volume control),
+Bluetooth audio from a Mac playing through the DAC (AAC, 44.1 kHz, built-in radio), and SSH
+staying off (port 22 closed) with a password shorter than 8 characters.
+
+NOT YET CONFIRMED ON r6 HARDWARE
+- AirPlay and Spotify Connect playback. Both played on r5.
+- The TP-Link UB500: this boot used the built-in radio; why was not investigated.
+- SSH login with a valid password (QEMU only).
+- The UB500 recovery during a real failed power-on (simulated on r5 only).
+Known cosmetic issue: non-ASCII characters in a Bluetooth device name show as escape codes on
+the status page.
 
 SOURCE AND LICENSES
 The image is built by Buildroot 2026.08.1 from this repository; ./build.sh downloads the exact

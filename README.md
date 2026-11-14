@@ -26,8 +26,7 @@ You don't need to build anything. A ready-made SD-card image is attached to the
 5. After about a minute, **Streamer** shows up as an AirPlay speaker, a Spotify Connect
    device and a Bluetooth speaker, and `http://streamer.local/` shows its status.
 
-This image passed every emulator test but has not yet been booted on a real Pi. The
-details are below.
+This image has been flashed and run on a real Pi Zero 2 W (see Status below).
 
 The system is a custom [Buildroot](https://buildroot.org) image, about 160 MB of
 contents, with read-only system and boot partitions. Pairings and the Spotify login
@@ -134,13 +133,27 @@ the Pi itself.
 ## Status
 
 r6 is the first image with nothing personal built in, and the one published under
-Releases. It passed the tests above, including the three QEMU boots with a real SSH
-password login, but it has not yet been booted on a real Pi.
+Releases. It passed the tests above, including three QEMU boots with a real SSH
+password login.
 
-Its predecessor r5 was flashed and ran on the Pi on 2026-11-13: Wi-Fi,
-`streamer.local`, the status page, AirPlay, Spotify Connect and Bluetooth on the UB500
-all came up, with no failed services. r6 differs from r5 in the SSH setup, in how the
-Pi identifies itself to the router, and in one line of the status page.
+**On a real Pi Zero 2 W (2026-11-14), r6 flashed from the release file:**
 
-The Bluetooth dongle recovery has only been exercised by simulating a dead dongle on
-the Pi, because the real failure is intermittent.
+- boots, joins a WPA2 2.4 GHz network and keeps the same address as before
+- `streamer.local` and the status page load; the system is read-only
+- Streamer is advertised as an AirPlay speaker and a Spotify Connect device
+- the JM7MAX DAC is detected with its `PCM` volume control
+- Bluetooth audio from a Mac plays through the DAC (AAC, 44.1 kHz, on the Pi's
+  built-in radio)
+- with a password shorter than 8 characters, SSH stays off and port 22 is closed
+
+**Not yet confirmed on r6 hardware:**
+
+- AirPlay and Spotify Connect playback (both played on r5, which differs from r6 only
+  in the SSH setup, the DHCP identity and one line of the status page)
+- the TP-Link UB500 dongle: this boot ended up on the built-in radio, and why was not
+  investigated
+- SSH login with a valid password (tested in QEMU only)
+- the UB500 recovery during a real failed power-on (only simulated on r5)
+
+Known cosmetic issue: the status page shows non-ASCII characters in a Bluetooth device
+name as escape codes (for example `\342\200\231` for a curly apostrophe).
