@@ -8,6 +8,8 @@ test_debug_log_is_opt_in_and_hides_password (__main__.StreamerTests.test_debug_l
 test_json_escaping (__main__.StreamerTests.test_json_escaping) ... ok
 test_ldac_is_built_in_from_a_pinned_licensed_source (__main__.StreamerTests.test_ldac_is_built_in_from_a_pinned_licensed_source) ... ok
 test_mixer_detection (__main__.StreamerTests.test_mixer_detection) ... ok
+test_network_player (__main__.StreamerTests.test_network_player)
+UPnP/DLNA: MPD plays on the DAC, upmpdcli is the part phones see. Neither runs as root. ... ok
 test_nothing_secret_is_built_into_the_image (__main__.StreamerTests.test_nothing_secret_is_built_into_the_image) ... ok
 test_players_fall_back_to_software_volume (__main__.StreamerTests.test_players_fall_back_to_software_volume) ... ok
 test_players_wait_for_dac (__main__.StreamerTests.test_players_wait_for_dac) ... ok
@@ -22,6 +24,6 @@ test_units (__main__.StreamerTests.test_units) ... ok
 test_wifi_config_generation (__main__.StreamerTests.test_wifi_config_generation) ... ok
 
 ----------------------------------------------------------------------
-Ran 20 tests in 4.601s
+Ran 21 tests in 7.550s
 
 OK

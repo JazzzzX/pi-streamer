@@ -73,13 +73,16 @@ class StreamerTests(unittest.TestCase):
         stub.write_text('#!/bin/sh\n[ -n "$MIXER" ] || exit 1\necho "$MIXER"\n')
         stub.chmod(0o755)
         (d / 'template').write_text((OVERLAY / 'etc/shairport-sync.conf').read_text())
+        (d / 'mpd-template').write_text((OVERLAY / 'etc/streamer-mpd.conf').read_text())
         dac = d / 'JM7MAX'
         if dac_present:
             dac.mkdir(exist_ok=True)
         script = (LIBEXEC / 'start-player').read_text()
         for old, new in [('/usr/libexec/streamer/dac-mixer', str(stub)), ('/proc/asound/JM7MAX', str(dac)),
                          ('/usr/bin/shairport-sync', str(player)), ('/usr/bin/librespot', str(player)),
-                         ('/usr/bin/bluealsa-aplay', str(player)), ('sleep 2;', ''),
+                         ('/usr/bin/bluealsa-aplay', str(player)), ('/usr/bin/mpd', str(player)), ('sleep 2;', ''),
+                         ('/run/streamer-mpd/mpd.conf', str(d / 'rendered-mpd')), ('/run/streamer-mpd/playlists', str(d / 'playlists')),
+                         ('/etc/streamer-mpd.conf', str(d / 'mpd-template')),
                          ('/run/streamer-airplay/shairport-sync.conf', str(d / 'rendered')),
                          ('/etc/shairport-sync.conf', str(d / 'template')),
                          ('/data/librespot', str(d / 'no-data')), ('/run/streamer-librespot', str(d / 'ram-cache'))]:
@@ -88,11 +91,19 @@ class StreamerTests(unittest.TestCase):
 
     def test_players_with_hardware_mixer(self):
         for mixer in ['PCM', 'Headset']:
-            for kind in ['airplay', 'spotify', 'bluetooth']:
+            for kind in ['airplay', 'spotify', 'bluetooth', 'upnp']:
                 with self.subTest(kind=kind, mixer=mixer), tempfile.TemporaryDirectory() as tmp:
                     p, d = self._start_player(tmp, kind, mixer)
                     self.assertEqual(p.returncode, 0, p.stderr)
-                    if kind == 'airplay':
+                    if kind == 'upnp':
+                        conf = (d / 'rendered-mpd').read_text()
+                        self.assertRegex(conf, rf'mixer_control\s+"{mixer}"')
+                        self.assertRegex(conf, r'mixer_type\s+"hardware"')
+                        self.assertRegex(conf, r'device\s+"hw:CARD=JM7MAX"')        # opened directly: no ALSA conversion
+                        self.assertRegex(conf, r'bind_to_address\s+"127.0.0.1"')    # MPD itself is not on the network
+                        self.assertEqual(p.stdout, f'--systemd\n{d / "rendered-mpd"}\n')
+                        self.assertTrue((d / 'playlists').is_dir())
+                    elif kind == 'airplay':
                         conf = (d / 'rendered').read_text()
                         self.assertIn(f'mixer_control_name = "{mixer}";', conf)
                         self.assertIn('output_device = "hw:CARD=JM7MAX";', conf)
@@ -108,11 +119,18 @@ class StreamerTests(unittest.TestCase):
                         self.assertIn('--pcm-period-time=50000\n', p.stdout)
 
     def test_players_fall_back_to_software_volume(self):
-        for kind, marker in [('airplay', None), ('spotify', '--mixer\nsoftvol\n'), ('bluetooth', '--volume=software\n')]:
+        for kind, marker in [('airplay', None), ('spotify', '--mixer\nsoftvol\n'), ('bluetooth', '--volume=software\n'),
+                             ('upnp', None)]:
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
                 p, d = self._start_player(tmp, kind, '')
                 self.assertEqual(p.returncode, 0, p.stderr)
-                if kind == 'airplay':
+                if kind == 'upnp':
+                    conf = (d / 'rendered-mpd').read_text()
+                    self.assertRegex(conf, r'mixer_type\s+"software"')
+                    for gone in ['@MIXER@', 'mixer_control', 'mixer_device', '"hardware"']:
+                        self.assertNotIn(gone, conf)
+                    self.assertRegex(conf, r'device\s+"hw:CARD=JM7MAX"')
+                elif kind == 'airplay':
                     conf = (d / 'rendered').read_text()
                     self.assertNotIn('mixer_control_name', conf)
                     self.assertNotIn('@MIXER@', conf)
@@ -293,6 +311,11 @@ class StreamerTests(unittest.TestCase):
         self.assertEqual([to_phone(to_mixer(v)) for v in range(128)], list(range(128)))
         player = (LIBEXEC / 'start-player').read_text()
         self.assertIn('--volume=mixer', player)
+        # the network player (MPD) gets the same mapping
+        mpd = (BASE / 'br2-streamer/patches/mpd/0001-alsa-mixer-map-volume-linearly-onto-the-mixer-range.patch').read_text()
+        self.assertIn('+++ b/src/mixer/plugins/AlsaMixerPlugin.cxx', mpd)
+        self.assertIn('-	int err = set_normalized_playback_volume(elem, 0.01*volume, 1);', mpd)
+        self.assertIn('+		err = snd_mixer_selem_set_playback_volume_all(elem,', mpd)
 
     def _ssh_env(self, d, settings_text, shadow="root:*:::::::\ndaemon:*:::::::\n"):
         d = Path(d)
@@ -494,8 +517,47 @@ class StreamerTests(unittest.TestCase):
         rules = (OVERLAY / 'etc/udev/rules.d/99-streamer-dac.rules').read_text()
         self.assertIn('ENV{ID_VENDOR_ID}=="06cb", ENV{ID_MODEL_ID}=="1595"', rules)
         ready = (LIBEXEC / 'dac-ready').read_text()
-        for unit in ['shairport-sync.service', 'librespot.service', 'streamer-bluealsa-aplay.service']:
-            self.assertIn(unit, ready)
+        for unit in ['shairport-sync.service', 'librespot.service', 'streamer-bluealsa-aplay.service', 'streamer-mpd.service']:
+            self.assertEqual(ready.count(unit), 2, unit)               # reset-failed and restart
+
+    def test_network_player(self):
+        """UPnP/DLNA: MPD plays on the DAC, upmpdcli is the part phones see. Neither runs as root."""
+        mpd = (UNITS / 'streamer-mpd.service').read_text()
+        for key in ['Type=notify', 'User=streamer-mpd', 'SupplementaryGroups=audio', 'RuntimeDirectory=streamer-mpd',
+                    'ExecStart=/usr/libexec/streamer/start-player upnp', 'NoNewPrivileges=yes', 'ProtectSystem=strict',
+                    'Restart=always', 'WantedBy=multi-user.target']:
+            self.assertIn(key, mpd)
+        upnp = (UNITS / 'streamer-upnp.service').read_text()
+        for key in ['BindsTo=streamer-mpd.service', 'After=streamer-mpd.service', 'User=upmpdcli',
+                    'RuntimeDirectory=streamer-upnp', 'ExecStart=/usr/bin/upmpdcli -c /etc/streamer-upnp.conf',
+                    'NoNewPrivileges=yes', 'ProtectSystem=strict', 'WantedBy=streamer-mpd.service']:
+            self.assertIn(key, upnp)
+        conf = dict(l.split(' = ', 1) for l in (OVERLAY / 'etc/streamer-upnp.conf').read_text().splitlines()
+                    if l and not l.startswith('#'))
+        self.assertEqual((conf['friendlyname'], conf['avfriendlyname']), ('Streamer', 'Streamer'))
+        self.assertEqual((conf['upnpav'], conf['openhome']), ('1', '0'))   # one device on the network, not two
+        self.assertEqual((conf['mpdhost'], conf['mpdport']), ('127.0.0.1', '6600'))
+        self.assertEqual(conf['cachedir'], '/run/streamer-upnp')        # the root filesystem is read-only
+        mpdconf = (OVERLAY / 'etc/streamer-mpd.conf').read_text()
+        self.assertNotIn('/var/', mpdconf)
+        self.assertNotIn('music_directory', mpdconf)                    # plays what it is sent; no library
+        users = (BOARD / 'users.txt').read_text()
+        self.assertIn('streamer-mpd 501 streamer-mpd 501 * - /bin/false audio ', users)
+        post = (BOARD / 'post-build.sh').read_text()
+        self.assertIn('mpd.service mpd.socket upmpdcli.service', post)  # the packaged units are masked
+        self.assertIn('rm -f "$T/etc/mpd.conf" "$T/etc/upmpdcli.conf"', post)
+        config = (BASE / 'br2-streamer/configs/streamer_zero2w_defconfig').read_text()
+        for setting in ['BR2_PACKAGE_MPD=y', 'BR2_PACKAGE_MPD_CURL=y', 'BR2_PACKAGE_MPD_FLAC=y', 'BR2_PACKAGE_MPD_FFMPEG=y',
+                        'BR2_PACKAGE_MPD_LIBSOXR=y', 'BR2_PACKAGE_UPMPDCLI=y']:
+            self.assertIn(setting, config)
+        self.assertIn('CONFIG_NC=y\nCONFIG_NC_EXTRA=y', (BOARD / 'busybox.fragment').read_text())   # nc -w
+        status = (OVERLAY / 'usr/share/streamer-www/cgi-bin/status').read_text()
+        self.assertIn('mpd) src=UPnP ;;', status)
+        self.assertIn('nc -w 2 127.0.0.1 6600', status)
+        self.assertIn('streamer-mpd streamer-upnp', status)
+        html = (OVERLAY / 'usr/share/streamer-www/index.html').read_text()
+        self.assertIn("d.source === 'UPnP'", html)
+        self.assertNotIn('ossless', html.replace('do not prove lossless audio', ''))   # the page claims nothing
 
     def test_status_page_makes_no_lossless_claims(self):
         status = (OVERLAY / 'usr/share/streamer-www/cgi-bin/status').read_text()

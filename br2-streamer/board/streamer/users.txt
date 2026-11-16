@@ -1,2 +1,3 @@
 # name uid group gid password home shell groups comment
 streamer-web 500 streamer-web 500 * - /bin/false audio,video Streamer_status
+streamer-mpd 501 streamer-mpd 501 * - /bin/false audio Streamer_network_player

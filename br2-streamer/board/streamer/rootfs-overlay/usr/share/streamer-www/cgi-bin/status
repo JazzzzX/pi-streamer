@@ -92,8 +92,23 @@ EOF_MIX
 fi
 case "$owner" in
 	shairport-sync) src=AirPlay ;; librespot) src=Spotify ;; bluealsa-aplay) src=Bluetooth ;;
+	mpd) src=UPnP ;;
 	'') src=Idle ;; *) src=$owner ;;
 esac
+
+# ---- Network player (MPD behind UPnP): the format MPD is decoding right now
+np_state=""; np_audio=""; np_kbps=""
+if [ "$src" = UPnP ]; then
+	while IFS= read -r l; do
+		case "$l" in
+			"state: "*) np_state=${l#state: } ;;
+			"audio: "*) np_audio=${l#audio: } ;;
+			"bitrate: "*) np_kbps=${l#bitrate: } ;;
+		esac
+	done <<EOF_MPD
+$(printf 'status\nclose\n' | nc -w 2 127.0.0.1 6600 2>/dev/null)
+EOF_MPD
+fi
 
 # ---- Bluetooth stream (bluealsa): prefer the running one
 bt_dev=""; bt_codec=""; bt_fmt=""; bt_sr=""; bt_run=false; bt_path=""
@@ -160,6 +175,7 @@ sval host "$host"; printf ','; sval uptime "$uptime"; printf ','; sval source "$
 kv dac; printf '{'; bval present $dac_present; printf ','; sval state "$dac_state"; printf ','; nval rate "$dac_rate"; printf ','
 	sval format "$dac_fmt"; printf ','; sval mixer "$mixer"; printf ','; nval volume "$vol"; printf ','; nval volume_db "$voldb"; printf '},'
 kv airplay; printf '{'; nval wifi_kbps "$wl_kbps"; printf ','; sval estimate "$ap_note"; printf '},'
+kv upnp; printf '{'; sval state "$np_state"; printf ','; sval audio "$np_audio"; printf ','; nval kbps "$np_kbps"; printf '},'
 kv bluetooth; printf '{'; sval adapter "$bt_hci"; printf ','; sval bus "$bt_bus"; printf ','; sval address "$bt_addr"; printf ','
 	sval device "$bt_dev"; printf ','; sval codec "$bt_codec"; printf ','; sval format "$bt_fmt"; printf ','; nval sampling "$bt_sr"; printf ','
 	bval running $bt_run; printf ','; nval nominal_kbps "$bt_nom"; printf ','; nval air_kbps "$bt_kbps"; printf '},'
@@ -170,6 +186,7 @@ kv system; printf '{'; nval cpu_pct "$cpu"; printf ','; sval load "$l1 $l2 $l3";
 kv services; printf '{'
 systemctl show -p Id -p LoadState -p ActiveState \
 	nqptp shairport-sync raspotify librespot bluetooth bluealsa bluealsa-aplay \
-	streamer-bluealsa streamer-bluealsa-aplay bt-agent bt-select streamer-wifi streamer-status sshd 2>/dev/null |
+	streamer-bluealsa streamer-bluealsa-aplay bt-agent bt-select streamer-mpd streamer-upnp \
+	streamer-wifi streamer-status sshd 2>/dev/null |
 	awk -F= '/^Id=/{id=$2} /^LoadState=/{ls=$2} /^ActiveState=/{ if (ls!="not-found" && ls!="masked") { printf "%s\"%s\":\"%s\"", sep, id, $2; sep="," } }'
 printf '}}\n'

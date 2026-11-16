@@ -84,18 +84,18 @@ $ netstat -ltn | grep -c ":7000 "
 
 $ wget -qO- http://127.0.0.1/ | head -c 15; echo; wget -qO- http://127.0.0.1/cgi-bin/status
 <!doctype html>
-{"host":"streamer","uptime":"0h 2m","source":"Idle","dac":{"present":true,"state":"CLOSED","rate":null,"format":"","mixer":"","volume":null,"volume_db":null},"airplay":{"wifi_kbps":null,"estimate":"Codec not verified (network traffic only)"},"bluetooth":{"adapter":"","bus":"","address":"","device":"","codec":"","format":"","sampling":null,"running":false,"nominal_kbps":null,"air_kbps":null},"wifi":{"ssid":"","signal_dbm":null,"tx_mbit":null,"freq_mhz":null,"ip":"","power_save":""},"system":{"cpu_pct":null,"load":"0.27 0.20 0.09","mem_used_mb":73,"mem_total_mb":917,"temp_c":25.1,"throttled":"","read_only":true},"services":{"nqptp.service":"active","shairport-sync.service":"active","librespot.service":"active","bluetooth.service":"inactive","streamer-bluealsa.service":"inactive","streamer-bluealsa-aplay.service":"inactive","bt-agent.service":"inactive","bt-select.service":"inactive","streamer-wifi.service":"inactive","streamer-status.service":"active","sshd.service":"inactive"}}
+{"host":"streamer","uptime":"0h 2m","source":"Idle","dac":{"present":true,"state":"CLOSED","rate":null,"format":"","mixer":"","volume":null,"volume_db":null},"airplay":{"wifi_kbps":null,"estimate":"Codec not verified (network traffic only)"},"upnp":{"state":"","audio":"","kbps":null},"bluetooth":{"adapter":"","bus":"","address":"","device":"","codec":"","format":"","sampling":null,"running":false,"nominal_kbps":null,"air_kbps":null},"wifi":{"ssid":"","signal_dbm":null,"tx_mbit":null,"freq_mhz":null,"ip":"","power_save":""},"system":{"cpu_pct":null,"load":"0.43 0.35 0.15","mem_used_mb":77,"mem_total_mb":917,"temp_c":25.1,"throttled":"","read_only":true},"services":{"nqptp.service":"active","shairport-sync.service":"active","librespot.service":"active","bluetooth.service":"inactive","streamer-bluealsa.service":"inactive","streamer-bluealsa-aplay.service":"inactive","bt-agent.service":"inactive","bt-select.service":"inactive","streamer-mpd.service":"active","streamer-upnp.service":"active","streamer-wifi.service":"inactive","streamer-status.service":"active","sshd.service":"inactive"}}
   [PASS] status page and status JSON served
   [PASS] status JSON makes no lossless claim
 
 $ journalctl -b -u avahi-daemon --no-pager -o cat | grep -iE "host name|Joining mDNS.*IPv4" | tail -n 3
 Joining mDNS multicast group on interface lo.IPv4 with address 127.0.0.1.
-Server startup complete. Host name is streamer.local. Local service cookie is 3894412928.
+Server startup complete. Host name is streamer.local. Local service cookie is 4103696549.
 Joining mDNS multicast group on interface usb0.IPv4 with address 10.0.2.15.
   [PASS] Avahi announces streamer.local on the network card
 
 $ journalctl -b -u librespot --no-pager -o cat | grep -iE "zeroconf|error" | tail -n 3
-[2026-03-13T17:10:42Z INFO  librespot_discovery] Published zeroconf service
+[2026-03-13T17:10:52Z INFO  librespot_discovery] Published zeroconf service
   [PASS] Spotify published through Avahi
 
 $ for u in shairport-sync librespot avahi-daemon; do printf "%s=%s " $u $(systemctl is-active $u); done; echo
@@ -125,6 +125,61 @@ $ ls /boot/streamer-log.txt 2>&1 | tail -n1
 ls: /boot/streamer-log.txt: No such file or directory
   [PASS] no diagnostic report written (debug=0)
 
+$ i=0; while [ $i -lt 90 ]; do systemctl is-active -q streamer-upnp && break; sleep 2; i=$((i+1)); done; sleep 4; for u in streamer-mpd streamer-upnp; do printf "%s=%s " $u $(systemctl is-active $u); done; echo
+streamer-mpd=active streamer-upnp=active
+  [PASS] network player services running
+
+$ for p in mpd:streamer-mpd upmpdcli:upmpdcli; do n=${p%:*}; u=${p#*:}; [ "$(awk "/^Uid:/{print \$2}" /proc/$(pidof $n)/status)" = "$(id -u $u)" ] && echo "$n runs as $u"; done; netstat -ltn | grep ":6600 " | awk "{print \$4}"
+mpd runs as streamer-mpd
+upmpdcli runs as upmpdcli
+127.0.0.1:6600
+  [PASS] MPD and upmpdcli run as their own users, and MPD listens on this machine only
+
+SSDP search for a MediaRenderer -> http://10.0.2.15:49152/uuid-d2be69d7-f85c-a921-0aaa-525400123457/description.xml
+  [PASS] found on the network by an SSDP search
+device description: name='Streamer' services=['AVTransport', 'ConnectionManager', 'RenderingControl']
+  [PASS] announces itself as "Streamer" with playback and volume services
+
+$ printf '#!/bin/sh\necho "Audio Output Volume Control"\n' > /run/test-dac-mixer; chmod 755 /run/test-dac-mixer; mount --bind /run/test-dac-mixer /usr/libexec/streamer/dac-mixer 2>/dev/null; /usr/libexec/streamer/dac-mixer; systemctl restart streamer-mpd; i=0; while [ $i -lt 90 ]; do systemctl is-active -q streamer-upnp && break; sleep 2; i=$((i+1)); done; sleep 4; for u in streamer-mpd streamer-upnp; do printf "%s=%s " $u $(systemctl is-active $u); done; echo; grep mixer /run/streamer-mpd/mpd.conf
+Audio Output Volume Control
+streamer-mpd=active streamer-upnp=active 
+        mixer_type      "hardware"
+        mixer_device    "hw:CARD=JM7MAX"
+        mixer_control   "Audio Output Volume Control"
+
+UPnP SetVolume -> sound card
+40: accepted=True reads-back=40 mixer: Left: Playback 102 [40%] Right: Playback 102 [40%]
+75: accepted=True reads-back=75 mixer: Left: Playback 192 [75%] Right: Playback 192 [75%]
+100: accepted=True reads-back=100 mixer: Left: Playback 256 [100%] Right: Playback 256 [100%]
+  [PASS] UPnP volume sets the sound card volume one-to-one, on both channels
+127.0.0.1 - - [16/Nov/2026 17:52:42] "GET /test.flac HTTP/1.1" 200 -
+
+UPnP SetAVTransportURI + Play http://10.0.2.2:8642/test.flac -> state PLAYING
+  [PASS] accepts a FLAC URL and reports PLAYING
+
+$ printf "status\nclose\n" | nc -w 2 127.0.0.1 6600 | grep -E "^(state|audio):"; grep -E "^(format|rate):" /proc/asound/JM7MAX/pcm0p/sub0/hw_params
+state: play
+audio: 48000:16:2
+format: S16_LE
+rate: 48000 (48000/1)
+  [PASS] MPD decodes the file as 16-bit/48 kHz and the sound card is opened in that format, unconverted
+
+$ wget -qO- http://127.0.0.1/cgi-bin/status | tr "," "\n" | grep -E "\"(source|upnp|audio|streamer-mpd.service|streamer-upnp.service)\""
+"source":"UPnP"
+"upnp":{"state":"play"
+"audio":"48000:16:2"
+"streamer-mpd.service":"active"
+"streamer-upnp.service":"active"
+  [PASS] status page shows the network player and the source format
+
+$ journalctl -b -u streamer-mpd --no-pager -o cat | grep -E "played|rror" | tail -n 3
+player: played "http://10.0.2.2:8642/test.flac"
+  [PASS] plays the track to its end
+
+recording of the sound card output against the test file: {'recorded': 502337, 'played': 496225, 'identical': 496225, 'foreign': 0, 'pieces': 18, 'longest': 65952, 'source': 576000}
+496225 frames reached the sound card; 496225 of them are frames of the file, in the file's order (86% of the track, in 18 unbroken pieces); 0 are not. Missing pieces are lost by the emulator when it falls behind; they are not counted as errors.
+  [PASS] every sample the sound card received is a sample of the file, unchanged and in order (bit-exact)
+
 ==============================================================================
 BOOT 2: ssh_password and debug=1 set in streamer.txt
 ==============================================================================
@@ -151,8 +206,8 @@ streamer.txt=1
   [PASS] password is hashed, and not stored in clear anywhere but streamer.txt
 
 $ for k in /data/ssh/ssh_host_ed25519_key /data/ssh/ssh_host_ecdsa_key; do ssh-keygen -lf $k | cut -d" " -f2; done; ls -ld /data/ssh /data/ssh/ssh_host_ed25519_key | cut -d" " -f1 | tr "\n" " "
-SHA256:K56tPKRt3SEOBZ6gQ8x34V48UxuL2DPU4ycjtc/J5uY
-SHA256:tznZ78ZH7BE8IKZixi/BS4c0qPJ2RF73VejjIedp30Y
+SHA256:ufQpwJHwHVYOq37bBH5P42gH/NrZR6JHoJB9pulqLv8
+SHA256:KiV0NQsZnSqkWq7w3crzLWI+fEphxyHbSlHEjkxMD3M
 drwx------ -rw-------
   [PASS] host keys kept on the data partition, private
 
@@ -171,7 +226,7 @@ ssh login from outside the guest -> rc=255 out='' err='root@127.0.0.1: Permissio
 
 $ cat /boot/streamer-log.txt | head -n 14; echo ...; grep -c . /boot/streamer-log.txt
 Streamer diagnostic log (debug=1 in streamer.txt)
-uptime: 72.62 s   clock: Fri Mar 13 17:09:37 UTC 2026
+uptime: 83.94 s   clock: Fri Mar 13 17:09:45 UTC 2026
 Raspberry Pi Zero 2 W
 6.12.61-v8
 root=/dev/mmcblk0p2 rootfstype=ext4 rootwait ro console=ttyAMA1,115200 loglevel=1 net.ifnames=0 cfg80211.ieee80211_regdom=IN brcmfmac.feature_disable=0x82000 systemd.debug_shell=ttyAMA1 systemd.mask=serial-getty@ttyAMA1.service systemd.show_status=0 snd_usb_audio.id=JM7MAX
@@ -197,8 +252,8 @@ BOOT 3: same card, second boot with SSH on
 ==============================================================================
 
 $ for k in /data/ssh/ssh_host_ed25519_key /data/ssh/ssh_host_ecdsa_key; do ssh-keygen -lf $k | cut -d" " -f2; done; ls -ld /data/ssh /data/ssh/ssh_host_ed25519_key | cut -d" " -f1 | tr "\n" " "
-SHA256:K56tPKRt3SEOBZ6gQ8x34V48UxuL2DPU4ycjtc/J5uY
-SHA256:tznZ78ZH7BE8IKZixi/BS4c0qPJ2RF73VejjIedp30Y
+SHA256:ufQpwJHwHVYOq37bBH5P42gH/NrZR6JHoJB9pulqLv8
+SHA256:KiV0NQsZnSqkWq7w3crzLWI+fEphxyHbSlHEjkxMD3M
 drwx------ -rw-------
   [PASS] host keys unchanged after a reboot
 
@@ -219,5 +274,5 @@ ssh login from outside the guest -> rc=0 out='0\nstreamer' err=''
   [PASS] login still works
 
 ==============================================================================
-41 of 41 checks passed
+51 of 51 checks passed
 EXIT=0

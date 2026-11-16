@@ -35,5 +35,16 @@ case "$1" in
     exec /usr/bin/bluealsa-aplay -S --profile-a2dp --pcm=plughw:CARD=JM7MAX "$@" \
       --pcm-buffer-time=200000 --pcm-period-time=50000
     ;;
+  upnp)
+    # MPD, the engine behind the UPnP/DLNA network player (upmpdcli is its front end).
+    mkdir -p /run/streamer-mpd/playlists
+    if [ -n "$mixer" ]; then
+      sed "s/@MIXER@/$mixer/" /etc/streamer-mpd.conf > /run/streamer-mpd/mpd.conf
+    else
+      sed -e '/@MIXER@/d' -e '/mixer_device/d' -e 's/"hardware"/"software"/' \
+        /etc/streamer-mpd.conf > /run/streamer-mpd/mpd.conf
+    fi
+    exec /usr/bin/mpd --systemd /run/streamer-mpd/mpd.conf
+    ;;
   *) exit 2 ;;
 esac

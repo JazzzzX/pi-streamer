@@ -2,26 +2,41 @@
 """Boot the built SD-card image in QEMU and check it from the inside and over SSH.
 
 Three boots of one copy of the image, so the data partition carries over like a real card:
-  1. as published      SSH must be off, nothing secret on the card, all services up
+  1. as published      SSH must be off, nothing secret on the card, all services up; the network
+                       player is found over UPnP, plays a FLAC file sent to it, and the samples
+                       reach the sound card unchanged
   2. ssh_password set  host keys are created, password login works, wrong password is refused
   3. same card again   the host keys are the same as in boot 2
 
 QEMU's raspi3b machine is used with the Zero 2 W device tree. It has no Wi-Fi chip, no Bluetooth
 radio and no JM7MAX DAC: an emulated USB sound card (renamed JM7MAX) and USB network card stand in.
 The image itself is not modified, except that boots 2 and 3 set ssh_password in streamer.txt.
+One part of the running system is substituted in boot 1, for the volume and playback checks only:
+the emulated sound card names its volume control "Audio Output Volume Control", which dac-mixer
+does not look for, so a stand-in dac-mixer that prints that name is mounted over it.
 A test-only copy of the device tree frees the PL011 UART (the Bluetooth UART on a real Pi) for
 systemd's debug shell, which is how commands are run inside the guest.
 
-Run in the streamer-qemu container with the build volume at /work:
-  python3 /boot-test.py            exit status 0 = every check passed
+Run in the streamer-qemu container with the build volume at /work and this directory mounted:
+  python3 /qemu-test/boot-test.py  exit status 0 = every check passed
 """
-import os, re, socket, struct, subprocess, sys, time
+import functools, http.server, os, random, re, socket, struct, subprocess, sys, threading, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import upnp_client
 
 W = '/work/qemu-test'
 IMG = '/work/out/images'
 DTB_SRC = '/work/out/build/linux-custom/arch/arm64/boot/dts/broadcom/bcm2710-rpi-zero-2-w.dtb'
 PASSWORD = 'qemu-Test pw$42'
 SSH_PORT = 2222
+UPNP_PORT = 49152          # upmpdcli's HTTP port in the guest, forwarded to the same port here
+SSDP_PORT = 1900
+MEDIA_PORT = 8642          # this container serves the test file; the guest reaches it as 10.0.2.2
+DAC_WAV = f'{W}/dac.wav'   # everything the guest plays on its (emulated) DAC is recorded here
+# The emulated machine does not run evenly: it falls behind and catches up in bursts. QEMU's sound card
+# drops packets when its buffer (32 ms by default) is full, so give it 8 s of buffer.
+DAC_BUFFER = 48000 * 4 * 8
 results = []
 
 
@@ -67,8 +82,10 @@ class Guest:
             ['qemu-system-aarch64', '-M', 'raspi3b', '-kernel', f'{IMG}/Image', '-dtb', dtb,
              '-drive', f'file={sd},if=sd,format=raw', '-append', cmdline,
              '-serial', f'unix:{W}/shell.sock,server=on,wait=off', '-serial', 'null', '-display', 'none', '-no-reboot',
-             '-device', 'usb-audio', '-device', 'usb-kbd', '-device', 'usb-net,netdev=n0',
-             '-netdev', f'user,id=n0,hostfwd=tcp:127.0.0.1:{SSH_PORT}-10.0.2.15:22'],
+             '-audiodev', f'wav,id=dac,path={DAC_WAV},out.frequency=48000,out.channels=2,out.format=s16',
+             '-device', f'usb-audio,audiodev=dac,buffer={DAC_BUFFER}', '-device', 'usb-kbd', '-device', 'usb-net,netdev=n0',
+             '-netdev', f'user,id=n0,hostfwd=tcp:127.0.0.1:{SSH_PORT}-10.0.2.15:22,'
+                        f'hostfwd=tcp:127.0.0.1:{UPNP_PORT}-10.0.2.15:{UPNP_PORT},hostfwd=udp:127.0.0.1:{SSDP_PORT}-10.0.2.15:{SSDP_PORT}'],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(3)
         self.s = socket.socket(socket.AF_UNIX)
@@ -115,8 +132,12 @@ class Guest:
 
     def stop(self):
         self.run('sync; mount -o remount,ro /data 2>/dev/null; sync', show=False)
-        self.q.kill()
-        self.q.wait()
+        self.q.terminate()                           # lets QEMU finish the recording of the DAC output
+        try:
+            self.q.wait(15)
+        except subprocess.TimeoutExpired:
+            self.q.kill()
+            self.q.wait()
 
 
 def check(name, text, has=(), lacks=(), equals=None):
@@ -154,6 +175,84 @@ def network_up(g):
                 'networkctl reload; i=0; while [ $i -lt 30 ]; do ip -4 -o addr show dev $IF | grep -q "inet " && break; sleep 1; i=$((i+1)); done; '
                 'ip -4 -o addr show dev $IF | awk "{print \\"address=\\" \\$4}"', timeout=80)
     return out
+
+
+def network_player(g):
+    """The UPnP/DLNA player, used the way a phone app uses it: search, read the description, set the
+    volume, send a track. Returns the samples of the track, for the comparison with the recording."""
+    reach = lambda url: re.sub(r'^http://[^/]+', f'http://127.0.0.1:{UPNP_PORT}', url)
+    wait = ('i=0; while [ $i -lt 90 ]; do systemctl is-active -q streamer-upnp && break; sleep 2; i=$((i+1)); done; sleep 4; '
+            'for u in streamer-mpd streamer-upnp; do printf "%s=%s " $u $(systemctl is-active $u); done; echo')
+    # In the emulator MPD starts late: it waits for the network, which only "comes up" by timeout.
+    check('network player services running', g.run(wait, timeout=260), has=['streamer-mpd=active', 'streamer-upnp=active'])
+    check('MPD and upmpdcli run as their own users, and MPD listens on this machine only',
+          g.run('for p in mpd:streamer-mpd upmpdcli:upmpdcli; do n=${p%:*}; u=${p#*:}; '
+                '[ "$(awk "/^Uid:/{print \\$2}" /proc/$(pidof $n)/status)" = "$(id -u $u)" ] && echo "$n runs as $u"; done; '
+                'netstat -ltn | grep ":6600 " | awk "{print \\$4}"'),
+          has=['mpd runs as streamer-mpd', 'upmpdcli runs as upmpdcli', '127.0.0.1:6600'], lacks=['0.0.0.0:6600', ':::6600'])
+    location, answer = upnp_client.ssdp_search('127.0.0.1', SSDP_PORT)
+    print(f'\nSSDP search for a MediaRenderer -> {location}')
+    if not check('found on the network by an SSDP search', str(location), has=['http://10.0.2.15:', 'description.xml']):
+        return None
+    r = upnp_client.Renderer(location, reach)
+    print(f'device description: name={r.name!r} services={r.services()}')
+    check('announces itself as "Streamer" with playback and volume services', f'{r.name}|{r.services()}',
+          has=['Streamer|', 'AVTransport', 'RenderingControl'], lacks=['UPnP/AV'])
+
+    # --- volume: the DAC's own control, on the DAC's scale (stand-in dac-mixer, see the top of this file)
+    mixer = 'Audio Output Volume Control'
+    g.run(f'printf \'#!/bin/sh\\necho "{mixer}"\\n\' > /run/test-dac-mixer; chmod 755 /run/test-dac-mixer; '
+          'mount --bind /run/test-dac-mixer /usr/libexec/streamer/dac-mixer 2>/dev/null; /usr/libexec/streamer/dac-mixer; '
+          'systemctl restart streamer-mpd; ' + wait + '; grep mixer /run/streamer-mpd/mpd.conf', timeout=260)
+    location, answer = upnp_client.ssdp_search('127.0.0.1', SSDP_PORT)
+    r = upnp_client.Renderer(location, reach)
+    level = f'amixer -c JM7MAX sget "{mixer}" | grep -E "Front (Left|Right):" | cut -d" " -f4-7 | tr "\\n" " "'
+    seen = []
+    for percent in (40, 75, 100):
+        ok = 'SetVolumeResponse' in r.set_volume(percent)
+        seen.append(f'{percent}: accepted={ok} reads-back={r.volume()} mixer: ' + g.run(level, show=False))
+    print('\nUPnP SetVolume -> sound card\n' + '\n'.join(seen))
+    check('UPnP volume sets the sound card volume one-to-one, on both channels', '\n'.join(seen),
+          has=['40: accepted=True reads-back=40 mixer: Left: Playback 102 [40%] Right: Playback 102 [40%]',
+               '75: accepted=True reads-back=75 mixer: Left: Playback 192 [75%] Right: Playback 192 [75%]',
+               '100: accepted=True reads-back=100 mixer: Left: Playback 256 [100%] Right: Playback 256 [100%]'])
+
+    # --- playback: 12 s of noise as 16-bit/48 kHz FLAC; noise, so that any change to a sample shows
+    os.makedirs(f'{W}/media', exist_ok=True)
+    rng = random.Random(20261116)
+    samples = [(rng.randint(-30000, 30000), rng.randint(-30000, 30000)) for _ in range(48000 * 12)]
+    upnp_client.write_flac(f'{W}/media/test.flac', samples, 48000)
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=f'{W}/media')
+    handler.log_message = lambda *a: None
+    server = http.server.ThreadingHTTPServer(('0.0.0.0', MEDIA_PORT), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f'http://10.0.2.2:{MEDIA_PORT}/test.flac'
+    answers = r.play(url, 'audio/flac')
+    state = ''
+    for _ in range(15):
+        time.sleep(2)
+        state = r.state()
+        if state == 'PLAYING':
+            break
+    print(f'\nUPnP SetAVTransportURI + Play {url} -> state {state}')
+    check('accepts a FLAC URL and reports PLAYING', f'{state}|{answers[0][:400]}|{answers[1][:400]}',
+          has=['PLAYING|', 'SetAVTransportURIResponse', 'PlayResponse'], lacks=['UPnPError'])
+    time.sleep(3)
+    check('MPD decodes the file as 16-bit/48 kHz and the sound card is opened in that format, unconverted',
+          g.run('printf "status\\nclose\\n" | nc -w 2 127.0.0.1 6600 | grep -E "^(state|audio):"; grep -E "^(format|rate):" /proc/asound/JM7MAX/pcm0p/sub0/hw_params'),
+          has=['state: play', 'audio: 48000:16:2', 'format: S16_LE', 'rate: 48000 '])
+    check('status page shows the network player and the source format',
+          g.run('wget -qO- http://127.0.0.1/cgi-bin/status | tr "," "\\n" | grep -E "\\"(source|upnp|audio|streamer-mpd.service|streamer-upnp.service)\\""'),
+          has=['"source":"UPnP"', '"audio":"48000:16:2"', '"streamer-mpd.service":"active"', '"streamer-upnp.service":"active"'])
+    for _ in range(40):
+        time.sleep(2)
+        state = r.state()
+        if state != 'PLAYING':
+            break
+    check('plays the track to its end', state + '|' + g.run('journalctl -b -u streamer-mpd --no-pager -o cat | grep -E "played|rror" | tail -n 3'),
+          has=['STOPPED|', 'player: played "' + url + '"'], lacks=['rror'])
+    server.shutdown()
+    return samples
 
 
 def boot(title, sd, dtb, cmdline_file, settle):
@@ -230,7 +329,18 @@ def main():
               has=['-c AAC -c aptX -c aptX-HD -c LDAC', 'library=loaded', 'sink-codecs-with-LDAC=1', 'LICENSE', 'NOTICE'])
         check('pairings are stored on the data partition', g.run('grep -c " /var/lib/bluetooth " /proc/$(pidof bluetoothd)/mountinfo'), equals='1')
         check('no diagnostic report written (debug=0)', g.run('ls /boot/streamer-log.txt 2>&1 | tail -n1'), has=['No such file'])
+        samples = network_player(g)
         g.stop()
+        if samples:
+            c = upnp_client.compare_capture(DAC_WAV, samples)
+            share = 100 * c['identical'] // c['source']
+            print(f'\nrecording of the sound card output against the test file: {c}')
+            print(f"{c['played']} frames reached the sound card; {c['identical']} of them are frames of the file, in the file's order "
+                  f"({share}% of the track, in {c['pieces']} unbroken pieces); {c['foreign']} are not. "
+                  'Missing pieces are lost by the emulator when it falls behind; they are not counted as errors.')
+            check('every sample the sound card received is a sample of the file, unchanged and in order (bit-exact)',
+                  f"foreign={c['foreign']} recorded-more-than-half={c['identical'] * 2 > c['source']}",
+                  has=['foreign=0 ', 'recorded-more-than-half=True'])
 
     # ---------------------------------------------------------------- boot 2: ssh_password set
     write_settings(fat, shipped.replace('\nssh_password=\n', f'\nssh_password={PASSWORD}\n').replace('\ndebug=0\n', '\ndebug=1\n'))

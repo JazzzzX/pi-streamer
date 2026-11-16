@@ -24,7 +24,7 @@
   .warn { background:rgba(245,165,36,.15); color:var(--warn); }
   .bad { background:rgba(242,85,90,.15); color:var(--bad); }
   .idle { background:rgba(139,149,163,.15); color:var(--dim); }
-  .src-AirPlay { color:var(--acc); } .src-Spotify { color:#1ed760; } .src-Bluetooth { color:#8f8bff; } .src-Idle { color:var(--dim); }
+  .src-AirPlay { color:var(--acc); } .src-Spotify { color:#1ed760; } .src-Bluetooth { color:#8f8bff; } .src-UPnP { color:#ffb454; } .src-Idle { color:var(--dim); }
   footer { color:var(--dim); font-size:12px; padding:0 20px 20px; }
 </style>
 </head>
@@ -78,6 +78,8 @@ const pill = (t, c) => `<span class="pill ${c}">${t}</span>`;
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmtName = f => ({S16_LE:'16-bit', S24_LE:'24-bit', S24_3LE:'24-bit', S32_LE:'32-bit'}[f] || f || '');
 const khz = r => r ? (r/1000).toString().replace(/\.0$/,'') + ' kHz' : '';
+// MPD reports what it decodes as rate:bits:channels, e.g. 44100:16:2
+const mpdAudio = a => { const p = (a || '').split(':'); return p.length === 3 ? `${p[1]}-bit / ${khz(+p[0])}` : '–'; };
 const kbps = v => (v === null || v === undefined) ? '–' : `${v} kbps`;
 
 function throttled(t) {
@@ -104,6 +106,7 @@ function render(d) {
   if (d.source === 'AirPlay') stream = `${kbps(d.airplay.wifi_kbps)} · ${d.airplay.estimate || ''}`;
   else if (d.source === 'Spotify') stream = `Configured: up to 320 kbps · Wi-Fi RX ${kbps(d.airplay.wifi_kbps)}`;
   else if (d.source === 'Bluetooth') stream = `${d.bluetooth.codec} · ${kbps(d.bluetooth.air_kbps)}`;
+  else if (d.source === 'UPnP') stream = `Source ${mpdAudio(d.upnp.audio)} · ${kbps(d.upnp.kbps)}`;
   $('stream').textContent = stream;
 
   const bt = d.bluetooth;

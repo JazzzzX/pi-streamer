@@ -1,0 +1,22 @@
+[Unit]
+Description=MPD - playback engine of the network player (Streamer)
+Wants=network-online.target time-sync.target
+After=network-online.target time-sync.target sound.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+User=streamer-mpd
+Group=streamer-mpd
+SupplementaryGroups=audio
+RuntimeDirectory=streamer-mpd
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ExecStart=/usr/libexec/streamer/start-player upnp
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

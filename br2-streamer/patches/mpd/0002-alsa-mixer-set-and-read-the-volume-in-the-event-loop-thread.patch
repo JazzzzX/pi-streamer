@@ -1,0 +1,94 @@
+alsa mixer: set and read the volume in the event loop's thread
+
+The AlsaMixerMonitor calls snd_mixer_handle_events() in the event loop's thread,
+while SetVolume() and GetVolume() use the same snd_mixer_t from the thread of the
+client command. alsa-lib's mixer interface is not thread-safe: selem_read() zeroes
+an element's volumes before it reads them again.
+
+Setting the volume of a stereo control is two writes, one per channel. The first
+write makes the kernel send a change event, the monitor handles it at once and
+re-reads the element, and the second write, running at the same moment in the other
+thread, can pick up a zero or the previous volume for the first channel.
+
+Seen in QEMU with an emulated USB sound card, where control transfers are slow: of
+150 volume changes, 3 ended with one or both channels at 0 instead of the volume
+asked for (measured with the previous patch applied).
+
+Run both functions in the event loop's thread with BlockingCall(), as the monitor's
+destructor already does.
+
+Upstream: not submitted yet. Unpatched MPD sets the volume with the same kind of
+per-channel alsa-lib call (snd_mixer_selem_set_playback_dB_all), so it should have the
+same race; that was not measured.
+
+--- a/src/mixer/plugins/AlsaMixerPlugin.cxx
++++ b/src/mixer/plugins/AlsaMixerPlugin.cxx
+@@ -309,19 +309,22 @@
+ int
+ AlsaMixer::GetVolume()
+ {
+-	int err;
+-
+ 	assert(handle != nullptr);
+ 
+-	err = snd_mixer_handle_events(handle);
+-	if (err < 0)
+-		throw Alsa::MakeError(err, "snd_mixer_handle_events() failed");
++	int volume = -1;
+ 
+-	int volume = GetPercentVolume();
+-	if (resulting_volume >= 0 && volume == resulting_volume)
+-		/* we're still on the value passed to SetVolume() */
+-		volume = desired_volume;
++	/* in the thread of the AlsaMixerMonitor; see SetVolume() */
++	BlockingCall(event_loop, [this, &volume](){
++		int err = snd_mixer_handle_events(handle);
++		if (err < 0)
++			throw Alsa::MakeError(err, "snd_mixer_handle_events() failed");
+ 
++		volume = GetPercentVolume();
++		if (resulting_volume >= 0 && volume == resulting_volume)
++			/* we're still on the value passed to SetVolume() */
++			volume = desired_volume;
++	});
++
+ 	return volume;
+ }
+ 
+@@ -330,17 +333,26 @@
+ {
+ 	assert(handle != nullptr);
+ 
+-	/* the same position on the mixer's own scale: 40% is 40% of its range */
+-	long min = 0, max = 0;
+-	int err = snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
+-	if (err >= 0)
+-		err = snd_mixer_selem_set_playback_volume_all(elem,
+-							      min + lround(0.01 * volume * double(max - min)));
+-	if (err < 0)
+-		throw Alsa::MakeError(err, "failed to set ALSA volume");
++	/* The AlsaMixerMonitor calls snd_mixer_handle_events() on this
++	   mixer handle in the event loop's thread, and alsa-lib's mixer
++	   is not safe to use from two threads: while it re-reads an
++	   element it has the element's volumes zeroed. Setting a
++	   stereo volume is two writes, and the first one triggers such
++	   a re-read; the second write could then store a zero, or the
++	   old volume, for the other channel. So do it in that thread. */
++	BlockingCall(event_loop, [this, volume](){
++		/* the same position on the mixer's own scale: 40% is 40% of its range */
++		long min = 0, max = 0;
++		int err = snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
++		if (err >= 0)
++			err = snd_mixer_selem_set_playback_volume_all(elem,
++								      min + lround(0.01 * volume * double(max - min)));
++		if (err < 0)
++			throw Alsa::MakeError(err, "failed to set ALSA volume");
+ 
+-	desired_volume = volume;
+-	resulting_volume = GetPercentVolume();
++		desired_volume = volume;
++		resulting_volume = GetPercentVolume();
++	});
+ }
+ 
+ const MixerPlugin alsa_mixer_plugin = {

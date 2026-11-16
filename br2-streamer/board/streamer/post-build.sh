@@ -27,10 +27,12 @@ FSTAB
 # No SysV init scripts under systemd
 rm -f "$T"/etc/init.d/S*nqptp "$T"/etc/init.d/S*shairport-sync
 
-# Use our units instead of the packaged BlueALSA ones
-for u in bluealsa.service bluealsa-aplay.service; do
+# Use our units instead of the packaged BlueALSA, MPD and upmpdcli ones, and our
+# configuration files (/etc/streamer-mpd.conf, /etc/streamer-upnp.conf) instead of theirs
+for u in bluealsa.service bluealsa-aplay.service mpd.service mpd.socket upmpdcli.service; do
 	[ -e "$T/usr/lib/systemd/system/$u" ] && ln -sf /dev/null "$T/etc/systemd/system/$u"
 done
+rm -f "$T/etc/mpd.conf" "$T/etc/upmpdcli.conf"
 
 # Enable services
 W="$T/etc/systemd/system/multi-user.target.wants"
@@ -42,7 +44,7 @@ rm -f "$T/etc/systemd/system/bt-discoverable.service" "$W/bt-discoverable.servic
 #  /etc/systemd/system-preset/10-streamer.preset.)
 for u in streamer-wifi nqptp shairport-sync librespot bt-agent bt-select \
 	streamer-bluealsa streamer-bluealsa-aplay streamer-status streamer-data streamer-debug-log \
-	streamer-ssh-setup; do
+	streamer-ssh-setup streamer-mpd; do
 	ln -sf "../$u.service" "$W/$u.service"
 done
 for u in systemd-networkd systemd-resolved systemd-timesyncd systemd-time-wait-sync \

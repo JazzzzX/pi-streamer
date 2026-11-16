@@ -6,6 +6,8 @@ network as **Streamer** and plays through a USB DAC:
 - **AirPlay 2** (shairport-sync 5.6.3 + nqptp)
 - **Spotify Connect** (librespot 0.8.0, up to 320 kbps)
 - **Bluetooth** receiver (SBC, AAC, aptX, aptX HD, and LDAC with a USB Bluetooth dongle)
+- **Network player** (UPnP/DLNA) for apps such as BubbleUPnP: the app sends the file
+  over Wi-Fi and it reaches the DAC unchanged. From r9; not in the released r8.
 - a view-only **status page** at `http://streamer.local/`
 
 ## Quick start: download the image and flash it
@@ -90,26 +92,52 @@ devices do not send LDAC; they use AAC.
 - **Building without it:** remove `BR2_PACKAGE_LIBLDAC=y` from the defconfig and
   `-c LDAC` from `streamer-bluealsa.service`.
 
-## Bluetooth volume
+## Network player (UPnP/DLNA)
 
-The phone's volume slider sets the DAC's own hardware volume, on the DAC's scale: 40%
-on the phone is 40% on the DAC, as `amixer set PCM 40%` would set it. Stock
-`bluealsa-aplay` uses a loudness formula instead, which keeps a USB DAC within 10 dB
-of full output for the whole upper half of the slider; a patch in
-`br2-streamer/patches/bluez-alsa` replaces it.
+Bluetooth always re-encodes the audio. Over Wi-Fi a phone can hand Streamer the
+original file instead. Streamer shows up as a UPnP/DLNA player named **Streamer**, and
+a UPnP app tells it what to fetch and play.
+
+- **On Android:** in [BubbleUPnP](https://bubblesoftapps.com/bubbleupnp/) choose
+  Streamer as the renderer, then play local files or a streaming service the app
+  supports (its makers list TIDAL and Qobuz). The Apple Music app cannot do this; it
+  can only reach Streamer over Bluetooth.
+- **What plays:** FLAC and whatever else FFmpeg decodes, over HTTP or HTTPS.
+- **Unchanged to the DAC:** the DAC is opened directly in the file's sample rate and
+  bit depth. Only if the DAC does not accept that format does the player convert, with
+  soxr for the sample rate.
+- **Volume:** the app's volume slider sets the DAC's own volume, one-to-one, as for
+  Bluetooth.
+- **How it is built:** [upmpdcli](https://www.lesbonscomptes.com/upmpdcli/) is the
+  part the network sees; it drives [MPD](https://www.musicpd.org), which plays. MPD
+  listens on the Pi itself only. Neither runs as root.
+
+Checked in the emulator: the player is found by a UPnP search, takes a FLAC URL, and
+every sample recorded at the emulated sound card is the sample in the file. Not yet
+tried: the real Pi and DAC, BubbleUPnP, any streaming service, and sample rates
+above 48 kHz (see Status).
+
+## Volume
+
+The volume slider of a phone (Bluetooth) or of a UPnP app sets the DAC's own hardware
+volume, on the DAC's scale: 40% on the phone is 40% on the DAC, as
+`amixer set PCM 40%` would set it. Stock `bluealsa-aplay` uses a loudness formula
+instead, which keeps a USB DAC within 10 dB of full output for the whole upper half
+of the slider, and stock MPD follows the DAC's dB values. Patches in
+`br2-streamer/patches` replace both.
 
 ## Layout
 
 | Path | Contents |
 | --- | --- |
-| `br2-streamer/` | Buildroot external tree: defconfig, `librespot` and `libldac` packages, two patches for bluez-alsa, board files, root filesystem overlay (units, scripts, status page) |
+| `br2-streamer/` | Buildroot external tree: defconfig, `librespot` and `libldac` packages, patches for bluez-alsa and MPD, board files, root filesystem overlay (units, scripts, status page) |
 | `br2-streamer/board/streamer/streamer.txt` | The settings file that ends up on the boot partition |
 | `buildroot-backports/` | `shairport-sync`, `nqptp` and `libplist` package files taken from Buildroot master (commit `dc102467`), because 2026.08.1 only has shairport-sync 4.3.7 |
 | `status-page/` | Source of the status page; the overlay holds an identical copy (a test checks this) |
 | `Dockerfile`, `build.sh`, `run.sh` | Build container, the build itself, and a helper to run commands in the Buildroot tree |
-| `test-streamer.py` | 20 host-side tests of the scripts and settings |
+| `test-streamer.py` | 21 host-side tests of the scripts and settings |
 | `check-image-contents.sh`, `check-image-modules.sh`, `check-image-wifi.sh`, `check-image-ldac.sh` (+ `.c`) | Checks run against the built image, most of them with its own ARM64 binaries |
-| `qemu-test/` | Boots the built SD image in QEMU three times and checks it from inside and over SSH |
+| `qemu-test/` | Boots the built SD image in QEMU three times and checks it from inside, over SSH and over UPnP |
 | `output/` | Notes, checksums, resolved Buildroot config and check results for the current image. The image files themselves are not in the repository. |
 | `pi-os-setup/` | Scripts from the earlier hand-built Raspberry Pi OS setup, for reference |
 
@@ -145,7 +173,7 @@ docker run --rm -u0 -v streamer-br:/work -v "$PWD/check-image-ldac.sh:/c.sh:ro" 
 # Exit status 0 means every check passed.
 docker build -t streamer-qemu qemu-test
 docker run --rm -u0 -v streamer-br:/work -v "$PWD/check-image-contents.sh:/c.sh:ro" streamer-qemu bash /c.sh
-docker run --rm -u0 -v streamer-br:/work -v "$PWD/qemu-test/boot-test.py:/boot-test.py:ro" streamer-qemu python3 /boot-test.py
+docker run --rm -u0 -v streamer-br:/work -v "$PWD/qemu-test:/qemu-test:ro" streamer-qemu python3 /qemu-test/boot-test.py
 ```
 
 The LDAC check encodes a test signal with the image's LDAC library, decodes it again
@@ -157,6 +185,13 @@ off and no key may exist), with `ssh_password` set (a real password login must w
 and a wrong password must fail), and once more (the host keys must be unchanged).
 QEMU has no Wi-Fi chip, no Bluetooth radio and no JM7MAX, so those are only proven on
 the Pi itself.
+
+The first boot also tests the network player from outside the emulated Pi, the way a
+phone app uses it: a UPnP search, the device description, volume, and playing a FLAC
+file of noise. QEMU records what the emulated sound card receives, and the test
+requires every recorded sample to be a sample of the file, in order. The emulator
+loses pieces of the recording when it falls behind (14% of the track in the last
+run); those are not counted as errors, changed samples would be.
 
 ## Things learned the hard way
 
@@ -173,6 +208,14 @@ the Pi itself.
   The same file reached through the device's `port` link disappears, with the device,
   the moment the port is off, so the port can no longer be switched back on. r7 had
   this bug; only the test on the real Pi showed it.
+- MPD's ALSA mixer uses one alsa-lib mixer handle from two threads. Setting a stereo
+  volume is two writes; the first triggers a re-read in the other thread, during which
+  alsa-lib has the volumes zeroed, and the second write can then store 0 for one
+  channel. In QEMU 3 of 150 volume changes went wrong this way; with the second MPD
+  patch, which does both in one thread, 0 of 450.
+- upmpdcli announces two devices unless OpenHome is switched off, and calls the
+  remaining one "<name>-UPnP/AV" unless `avfriendlyname` is set.
+- BusyBox `nc` has no `-w` timeout without `CONFIG_NC_EXTRA`.
 - Buildroot's bluez-alsa package has no LDAC option, and a package's dependencies
   cannot be extended from an external tree. `external.mk` adds `--enable-ldac` and an
   ordering rule so that `libldac` is installed first.
@@ -186,7 +229,25 @@ the Pi itself.
 
 ## Status
 
-**r8 (2026-11-14)** is the released image. It is r7 with one fix, in the script that
+**r9 (built 2026-11-16, not released yet)** adds the network player (UPnP/DLNA) to
+r8. It passed every check that does not need a Pi:
+
+- 21 host-side tests of the scripts and settings
+- on the image: unit files, filesystems, boot partition, no keys or passwords; the
+  module loader, wpa_supplicant and the LDAC library, as for r8
+- 51 of 51 checks over three boots in QEMU. New for the network player: found by a
+  UPnP search as "Streamer"; MPD and upmpdcli run as their own users and MPD is not
+  reachable from the network; UPnP volume 40, 75 and 100 set the sound card to 40%,
+  75% and 100% on both channels; a 16-bit/48 kHz FLAC file sent by URL plays to its
+  end with the sound card opened in that format; of the 576,000 sample frames of the
+  file, 496,225 were recorded at the emulated sound card and every one is identical
+  to the file (the emulator lost the rest).
+
+r9 has not been booted on a real Pi. Not yet tried at all: the JM7MAX with this
+player, a real UPnP app such as BubbleUPnP, a streaming service, HTTPS streams, and
+sample rates above 48 kHz.
+
+**r8 (2026-11-14)** is the released image, the one the quick start links. It is r7 with one fix, in the script that
 resets a UB500 which did not start: r7 switched the dongle's hub port off and then
 could not switch it back on, so the dongle stayed off until the next power-on. Nothing
 else differs, so what was seen on r7 applies to r8. r8 itself has not been flashed.

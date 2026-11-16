@@ -13,7 +13,7 @@ mkdir -p "$T"
 mknod -m666 "$T/dev/null" c 1 3
 
 # this project's own unit files (not the links that enable or mask stock units)
-units=$(cd "$T/etc/systemd/system" && for u in *.service; do [ -f "$u" ] && [ ! -L "$u" ] && echo "/etc/systemd/system/$u"; done)
+units=$(cd "$T/etc/systemd/system" && for u in *.service; do if [ -f "$u" ] && [ ! -L "$u" ]; then echo "/etc/systemd/system/$u"; fi; done)
 systemd-analyze verify --root="$T" $units >/work/review-units.log 2>&1 || { cat /work/review-units.log; echo "systemd unit verification: FAIL"; exit 1; }
 # the stock units of the image's newer systemd use keys this container's systemd does not know; only our own files count
 if grep -F "/etc/systemd/system/" /work/review-units.log; then echo "systemd unit verification: FAIL"; exit 1; fi
@@ -56,4 +56,8 @@ echo "root filesystem contents: $(du -sh "$T" | cut -f1)"
 chroot "$T" /usr/bin/shairport-sync -V
 chroot "$T" /usr/bin/librespot --version | cut -c1-16
 echo "bluealsa $(chroot "$T" /usr/bin/bluealsa --version)"
+chroot "$T" /usr/bin/mpd --version | head -n1
+chroot "$T" /usr/bin/upmpdcli -v 2>&1 | head -n1
+# our configuration only: the packaged files would point MPD at /var/lib/mpd and the network
+for f in etc/mpd.conf etc/upmpdcli.conf; do [ ! -e "$T/$f" ] || { echo "unexpected $f"; exit 1; }; done
 echo "PASS"

@@ -1,6 +1,6 @@
-Streamer — Pi Zero 2 W 64-bit image, revision r8 (2026-11-14): r7, tested on a real Pi, plus one fix
+Streamer — Pi Zero 2 W 64-bit image, revision r9 (2026-11-16), not yet run on a real Pi
 
-IMAGE FILE:  streamer-zero2w-r8.img.xz   (checksums: SHA256SUMS)
+IMAGE FILE:  streamer-zero2w-r9.img.xz   (checksums: SHA256SUMS)
 Flash with Raspberry Pi Imager -> Use custom, or balenaEtcher. No need to unzip. Skip OS
 customisation.
 
@@ -13,7 +13,19 @@ Save, eject. Pi's USB data port -> USB 2.0 hub -> JCally JM7MAX DAC (+ optional 
 UB500 Bluetooth dongle). Power on PWR IN.
 
 After about a minute: http://streamer.local/ and "Streamer" as an AirPlay speaker, a Spotify
-Connect device and a Bluetooth speaker.
+Connect device, a Bluetooth speaker and a UPnP/DLNA network player.
+
+WHAT CHANGED IN r9
+- Network player (UPnP/DLNA). A UPnP app on the same Wi-Fi, such as BubbleUPnP on Android, sees
+  "Streamer" as a player and sends it music: local files, or a streaming service the app supports
+  (its makers list TIDAL and Qobuz). Unlike Bluetooth, the file itself is sent, and Streamer
+  passes it to the DAC in the file's own sample rate and bit depth. It converts only if the DAC
+  does not accept that format. The app's volume slider sets the DAC's volume one-to-one.
+  Inside: upmpdcli 1.9.7 (what the network sees) and MPD 0.24.15 (plays). Neither runs as root,
+  and MPD cannot be reached from the network.
+- The status page shows "UPnP" as a source, with the format of the file being played.
+- A fault in MPD, found while testing: a volume change could leave one channel silent (3 of 150
+  changes in the emulator). Fixed in this image (0 of 450).
 
 WHAT CHANGED IN r8
 - One fix. r7's reset of a UB500 that did not start switched the dongle's hub port off and
@@ -46,7 +58,7 @@ of Sony Corporation. This project is not affiliated with Sony and the image is n
 Sony; the NOTICE says that products using LDAC need Sony's certification.
 
 HOW THIS IMAGE FILE WAS CHECKED (details in this folder)
-- validation.txt        20 host-side tests of the scripts and settings.
+- validation.txt        21 host-side tests of the scripts and settings.
 - image-checks.txt      unit verification, filesystem checks, boot partition contents, and a
                         search of the image for keys.
 - module-validation.txt the image's own module loader decodes the Wi-Fi, USB-audio and
@@ -55,11 +67,18 @@ HOW THIS IMAGE FILE WAS CHECKED (details in this folder)
 - ldac-validation.txt   the image's Bluetooth receiver lists LDAC; the image's LDAC library
                         decodes what it encoded at 44.1, 48, 88.2 and 96 kHz and at all three
                         bit rates, with no decode errors.
-- review/qemu-r8.txt    the image booted three times in QEMU (raspi3b machine, Zero 2 W device
-                        tree, emulated USB sound and network cards), 41 of 41 checks passed:
+- review/qemu-r9.txt    the image booted three times in QEMU (raspi3b machine, Zero 2 W device
+                        tree, emulated USB sound and network cards), 51 of 51 checks passed:
                           1. as published: SSH off, port 22 closed, no key anywhere on the
                              card, all services up, the Bluetooth receiver running with LDAC
-                             enabled, status page, Avahi, AirPlay, Spotify, DHCP lease;
+                             enabled, status page, Avahi, AirPlay, Spotify, DHCP lease.
+                             Network player, used from outside like a phone app: found by a
+                             UPnP search as "Streamer"; volume 40/75/100 sets the sound card
+                             to 40/75/100% on both channels; a 16-bit/48 kHz FLAC file plays
+                             to its end with the sound card opened in that format; 496,225
+                             of the file's 576,000 sample frames were recorded at the
+                             emulated sound card, every one identical to the file (the
+                             emulator lost the rest);
                           2. ssh_password set: host keys created, a real SSH login with the
                              password works, a wrong password and a password-less login are
                              refused, the debug report hides both passwords;
@@ -76,7 +95,11 @@ its hub port off and on; the dongle re-appeared 3.4 s later, loaded its firmware
 again and offered LDAC.
 
 NOT YET CONFIRMED
-- r8 itself has not been flashed. It differs from r7 only in that script.
+- r9 has not been flashed. Its network player has only run in the emulator: not on the Pi, not
+  with the JM7MAX, not with BubbleUPnP or any other real app, not with a streaming service or an
+  HTTPS stream, and not above 48 kHz.
+- r8 has not been flashed either; it differs from r7 only in the dongle reset script, and r9
+  contains it.
 - The reset after a real failed start: the fault cannot be forced. The same port reset, done
   by hand on r6 after a real failed start, brought the dongle up at the first try.
 - AirPlay and Spotify Connect playback (last heard on r5).

@@ -1,0 +1,21 @@
+[Unit]
+Description=upmpdcli - UPnP/DLNA network player "Streamer" (front end of MPD)
+# Runs exactly while MPD runs: MPD only starts when the DAC is there.
+BindsTo=streamer-mpd.service
+After=streamer-mpd.service network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+User=upmpdcli
+Group=upmpdcli
+RuntimeDirectory=streamer-upnp
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ExecStart=/usr/bin/upmpdcli -c /etc/streamer-upnp.conf
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=streamer-mpd.service

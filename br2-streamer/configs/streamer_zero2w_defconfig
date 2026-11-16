@@ -81,6 +81,15 @@ BR2_PACKAGE_FDK_AAC=y
 # LDAC receive (Sony code as published by openvela, Apache-2.0); see README, "LDAC"
 BR2_PACKAGE_LIBLDAC=y
 
+# --- Network player (UPnP/DLNA): MPD plays, upmpdcli makes it visible to phones
+BR2_PACKAGE_MPD=y
+BR2_PACKAGE_MPD_CURL=y
+BR2_PACKAGE_MPD_FFMPEG=y
+BR2_PACKAGE_MPD_FLAC=y
+BR2_PACKAGE_MPD_LIBSOXR=y
+# BR2_PACKAGE_MPD_MAD is not set
+BR2_PACKAGE_UPMPDCLI=y
+
 # --- Images
 BR2_TARGET_ROOTFS_EXT2=y
 BR2_TARGET_ROOTFS_EXT2_4=y

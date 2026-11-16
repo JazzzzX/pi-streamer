@@ -1,0 +1,47 @@
+alsa mixer: map the volume linearly onto the mixer's range
+
+MPD sets a hardware mixer on the scale that alsamixer shows, which follows the
+mixer's dB values. On a USB DAC with a wide range that puts 50% at about -18 dB,
+far louder than 50% of the DAC's own scale.
+
+Streamer sets the DAC's volume from several sources, and for Bluetooth it already
+uses the DAC's own scale (see the bluez-alsa patch). Do the same here, so that 40%
+from a UPnP app is 40% of the mixer range, as "amixer set PCM 40%" would set it.
+
+Upstream: not submitted; a change of behaviour that this project wants.
+
+--- a/src/mixer/plugins/AlsaMixerPlugin.cxx
++++ b/src/mixer/plugins/AlsaMixerPlugin.cxx
+@@ -112,8 +112,16 @@
+ 
+ 	[[gnu::pure]]
+ 	[[nodiscard]] double GetNormalizedVolume() const noexcept {
+-		return get_normalized_playback_volume(elem,
+-						      SND_MIXER_SCHN_FRONT_LEFT);
++		/* the position on the mixer's own scale, as "amixer" shows it */
++		long min = 0, max = 0, value = 0;
++		if (snd_mixer_selem_get_playback_volume_range(elem, &min, &max) < 0 ||
++		    max <= min ||
++		    snd_mixer_selem_get_playback_volume(elem,
++							SND_MIXER_SCHN_FRONT_LEFT,
++							&value) < 0)
++			return 0;
++
++		return double(value - min) / double(max - min);
+ 	}
+ 
+ 	[[gnu::pure]]
+@@ -322,7 +330,12 @@
+ {
+ 	assert(handle != nullptr);
+ 
+-	int err = set_normalized_playback_volume(elem, 0.01*volume, 1);
++	/* the same position on the mixer's own scale: 40% is 40% of its range */
++	long min = 0, max = 0;
++	int err = snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
++	if (err >= 0)
++		err = snd_mixer_selem_set_playback_volume_all(elem,
++							      min + lround(0.01 * volume * double(max - min)));
+ 	if (err < 0)
+ 		throw Alsa::MakeError(err, "failed to set ALSA volume");
+ 

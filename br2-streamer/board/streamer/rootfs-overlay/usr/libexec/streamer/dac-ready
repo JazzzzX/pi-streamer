@@ -1,4 +1,4 @@
 #!/bin/sh
 # Run by udev (99-streamer-dac.rules) when the JCally JM7MAX DAC is plugged in and ready.
-systemctl reset-failed shairport-sync.service librespot.service streamer-bluealsa-aplay.service 2>/dev/null
-systemctl --no-block restart shairport-sync.service librespot.service streamer-bluealsa-aplay.service
+systemctl reset-failed shairport-sync.service librespot.service streamer-bluealsa-aplay.service streamer-mpd.service 2>/dev/null
+systemctl --no-block restart shairport-sync.service librespot.service streamer-bluealsa-aplay.service streamer-mpd.service

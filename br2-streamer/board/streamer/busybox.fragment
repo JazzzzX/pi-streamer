@@ -10,3 +10,6 @@ CONFIG_CRYPTPW=y
 CONFIG_MKPASSWD=y
 CONFIG_USE_BB_CRYPT=y
 CONFIG_USE_BB_CRYPT_SHA=y
+# nc: the status page asks MPD (network player) what it is playing
+CONFIG_NC=y
+CONFIG_NC_EXTRA=y
