@@ -1,4 +1,4 @@
-Streamer — Pi Zero 2 W 64-bit image, revision r9 (2026-11-16), not yet run on a real Pi
+Streamer — Pi Zero 2 W 64-bit image, revision r9 (2026-11-16), tested on a real Pi
 
 IMAGE FILE:  streamer-zero2w-r9.img.xz   (checksums: SHA256SUMS)
 Flash with Raspberry Pi Imager -> Use custom, or balenaEtcher. No need to unzip. Skip OS
@@ -14,6 +14,9 @@ UB500 Bluetooth dongle). Power on PWR IN.
 
 After about a minute: http://streamer.local/ and "Streamer" as an AirPlay speaker, a Spotify
 Connect device, a Bluetooth speaker and a UPnP/DLNA network player.
+
+CHECK THE VOLUME BEFORE THE FIRST TRACK FROM A UPnP APP. After power-on the DAC's volume is at
+100% until some source sets it, and a UPnP app starts from the volume it reads from the player.
 
 WHAT CHANGED IN r9
 - Network player (UPnP/DLNA). A UPnP app on the same Wi-Fi, such as BubbleUPnP on Android, sees
@@ -84,28 +87,30 @@ HOW THIS IMAGE FILE WAS CHECKED (details in this folder)
                              refused, the debug report hides both passwords;
                           3. same card again: same host keys, login still works.
 
-ON A REAL PI ZERO 2 W (2026-11-14)
-r7, flashed: boot, Wi-Fi, streamer.local, status page, read-only system, no failed service,
-SSH password login, AirPlay and Spotify advertised, Bluetooth on the UB500, and LDAC from an
-Android phone through the JM7MAX at 96 kHz / 32-bit: about 1,025 kbps received (990 kbps of
-audio plus overhead), no lost packets, one decode error early in the session and none after.
-Volume: phone at 81% -> DAC at 81% (-14 dB).
-r8's fix, run on that Pi: told that the working dongle had not started, the script switched
-its hub port off and on; the dongle re-appeared 3.4 s later, loaded its firmware, was selected
-again and offered LDAC.
+ON A REAL PI ZERO 2 W (2026-11-17, r9 flashed from this file)
+Seen working: boot, Wi-Fi, streamer.local, status page, read-only system, no failed service,
+SSH password login, Bluetooth on the UB500 (it started normally).
+Network player: found by a UPnP search from a Mac as "Streamer"; BubbleUPnP on an Android phone
+played a 24-bit/44.1 kHz FLAC file; the DAC was opened as 24-bit/44.1 kHz, the file's own
+format; app volume 54 -> DAC 54% on both channels; about 1% of one CPU core.
+AirPlay from a Mac (as its system sound output): plays at 44.1 kHz; about 150 UDP packets a
+second at 600-710 kbps, the pattern of AirPlay's lossless real-time mode (the audio data
+itself was not inspected).
+The JM7MAX accepts 44.1, 48, 96, 192 and 384 kHz at 16, 24 and 32 bits; not 88.2 or 176.4 kHz.
+
+SEEN ON EARLIER IMAGES, NOT REPEATED ON r9
+- r7: LDAC from an Android phone at 96 kHz, about 1,025 kbps received, no lost packets;
+  Bluetooth volume one-to-one; the dongle reset (r8's script), exercised by telling the Pi
+  that the working dongle had not started.
+- r6: Bluetooth from a Mac (AAC); SSH staying off with a short password.
 
 NOT YET CONFIRMED
-- r9 has not been flashed. Its network player has only run in the emulator: not on the Pi, not
-  with the JM7MAX, not with BubbleUPnP or any other real app, not with a streaming service or an
-  HTTPS stream, and not above 48 kHz.
-- r8 has not been flashed either; it differs from r7 only in the dongle reset script, and r9
-  contains it.
-- The reset after a real failed start: the fault cannot be forced. The same port reset, done
-  by hand on r6 after a real failed start, brought the dongle up at the first try.
-- AirPlay and Spotify Connect playback (last heard on r5).
-- Bluetooth from a Mac (AAC) and SSH staying off with a short password (both seen on r6).
-Known cosmetic issue: non-ASCII characters in a Bluetooth device name show as escape codes on
-the status page.
+- Spotify Connect playback (last heard on r5).
+- The dongle reset after a real failed start: the fault cannot be forced. The same port reset,
+  done by hand on r6 after a real failed start, brought the dongle up at the first try.
+- The network player with a streaming service, an HTTPS stream, or a file above 44.1 kHz.
+Known issues: after power-on the DAC's volume is at 100% (see above). Non-ASCII characters in
+a Bluetooth device name show as escape codes on the status page.
 
 SOURCE AND LICENSES
 The image is built by Buildroot 2026.08.1 from this repository; ./build.sh downloads the exact

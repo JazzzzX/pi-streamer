@@ -7,17 +7,17 @@ network as **Streamer** and plays through a USB DAC:
 - **Spotify Connect** (librespot 0.8.0, up to 320 kbps)
 - **Bluetooth** receiver (SBC, AAC, aptX, aptX HD, and LDAC with a USB Bluetooth dongle)
 - **Network player** (UPnP/DLNA) for apps such as BubbleUPnP: the app sends the file
-  over Wi-Fi and it reaches the DAC unchanged. From r9; not in the released r8.
+  over Wi-Fi and it reaches the DAC unchanged.
 - a view-only **status page** at `http://streamer.local/`
 
 ## Quick start: download the image and flash it
 
 You don't need to build anything. A ready-made SD-card image is attached to the
-[r8 release](https://github.com/JazzzzX/pi-streamer/releases/tag/r8).
+[r9 release](https://github.com/JazzzzX/pi-streamer/releases/tag/r9).
 
 1. Download
-   [`streamer-zero2w-r8.img.xz`](https://github.com/JazzzzX/pi-streamer/releases/download/r8/streamer-zero2w-r8.img.xz)
-   (62 MB).
+   [`streamer-zero2w-r9.img.xz`](https://github.com/JazzzzX/pi-streamer/releases/download/r9/streamer-zero2w-r9.img.xz)
+   (64 MB).
 2. Flash it to a microSD card (1 GB or larger) with
    [Raspberry Pi Imager](https://www.raspberrypi.com/software/) ("Use custom") or
    balenaEtcher. No need to unzip it; skip Imager's OS customisation.
@@ -26,10 +26,10 @@ You don't need to build anything. A ready-made SD-card image is attached to the
 4. Put the card in the Pi, connect the DAC to its USB data port (through a USB 2.0 hub
    if you also use a Bluetooth dongle), and power it on.
 5. After about a minute, **Streamer** shows up as an AirPlay speaker, a Spotify Connect
-   device and a Bluetooth speaker, and `http://streamer.local/` shows its status.
+   device, a Bluetooth speaker and a UPnP/DLNA player, and `http://streamer.local/`
+   shows its status.
 
-r8 is r7 with one fix. r7 has been flashed and run on a real Pi Zero 2 W, and the fix
-was tried on that Pi (see Status below).
+This image has been flashed and run on a real Pi Zero 2 W (see Status below).
 
 The system is a custom [Buildroot](https://buildroot.org) image, about 160 MB of
 contents, with read-only system and boot partitions. Pairings and the Spotify login
@@ -112,10 +112,18 @@ a UPnP app tells it what to fetch and play.
   part the network sees; it drives [MPD](https://www.musicpd.org), which plays. MPD
   listens on the Pi itself only. Neither runs as root.
 
+**Check the app's volume before the first track.** After power-on the DAC's volume is
+at 100% until some source sets it, and a UPnP app starts from the volume it reads from
+the player.
+
+The JM7MAX accepts 44.1, 48, 96, 192 and 384 kHz at 16, 24 and 32 bits. It does not
+accept 88.2 or 176.4 kHz, so files at those two rates are converted.
+
 Checked in the emulator: the player is found by a UPnP search, takes a FLAC URL, and
-every sample recorded at the emulated sound card is the sample in the file. Not yet
-tried: the real Pi and DAC, BubbleUPnP, any streaming service, and sample rates
-above 48 kHz (see Status).
+every sample recorded at the emulated sound card is the sample in the file. On the
+Pi: BubbleUPnP played a 24-bit/44.1 kHz FLAC file, with the DAC opened in that format.
+Not yet tried: a streaming service, HTTPS streams, and sample rates above 44.1 kHz on
+the Pi (see Status).
 
 ## Volume
 
@@ -229,66 +237,68 @@ run); those are not counted as errors, changed samples would be.
 
 ## Status
 
-**r9 (built 2026-11-16, not released yet)** adds the network player (UPnP/DLNA) to
-r8. It passed every check that does not need a Pi:
+**r9 (2026-11-16)** is the released image. It adds the network player (UPnP/DLNA) to
+r8, which was r7 plus a fix to the reset of a UB500 that did not start.
 
-- 21 host-side tests of the scripts and settings
-- on the image: unit files, filesystems, boot partition, no keys or passwords; the
-  module loader, wpa_supplicant and the LDAC library, as for r8
-- 51 of 51 checks over three boots in QEMU. New for the network player: found by a
-  UPnP search as "Streamer"; MPD and upmpdcli run as their own users and MPD is not
-  reachable from the network; UPnP volume 40, 75 and 100 set the sound card to 40%,
-  75% and 100% on both channels; a 16-bit/48 kHz FLAC file sent by URL plays to its
-  end with the sound card opened in that format; of the 576,000 sample frames of the
-  file, 496,225 were recorded at the emulated sound card and every one is identical
-  to the file (the emulator lost the rest).
+**r9 on a real Pi Zero 2 W (2026-11-17), flashed from the release file:**
 
-r9 has not been booted on a real Pi. Not yet tried at all: the JM7MAX with this
-player, a real UPnP app such as BubbleUPnP, a streaming service, HTTPS streams, and
-sample rates above 48 kHz.
-
-**r8 (2026-11-14)** is the released image, the one the quick start links. It is r7 with one fix, in the script that
-resets a UB500 which did not start: r7 switched the dongle's hub port off and then
-could not switch it back on, so the dongle stayed off until the next power-on. Nothing
-else differs, so what was seen on r7 applies to r8. r8 itself has not been flashed.
-
-**The fix, tried on the Pi (running r7, with r8's script):** the Pi was told that the
-working dongle had not started. The script switched its hub port off and on, the
-dongle re-appeared 3.4 seconds later and loaded its firmware, Streamer selected it
-again and offered LDAC on it, with no failed service. The real fault (a failed
-firmware download at power-on) cannot be forced; on r6 the same port reset, done by
-hand after a real failed start, brought the dongle up at the first try.
-
-**r7 on a real Pi Zero 2 W (2026-11-14):**
-
-- boots, joins a WPA2 2.4 GHz network, `streamer.local` and the status page load, the
-  system is read-only and no service has failed
+- boots, joins Wi-Fi, `streamer.local` and the status page load, the system is
+  read-only and no service has failed
 - SSH password login works
-- Streamer is advertised as an AirPlay speaker and a Spotify Connect device
-- the UB500 is used for Bluetooth
-- LDAC from an Android phone plays through the JM7MAX at 96 kHz / 32-bit: about
-  1,025 kbps received (990 kbps of audio plus Bluetooth overhead), no lost packets,
-  the decoder using about 5% of one CPU core. The log shows one decode error early in
-  the session and none in the minutes after.
-- volume: with the phone at 81% the DAC is at 81% (-14 dB). The stock mapping would
-  have put it at -3 dB.
+- the UB500 is used for Bluetooth (it started normally at this power-on)
+- network player: a UPnP search from a Mac finds "Streamer"; BubbleUPnP on an Android
+  phone played a 24-bit/44.1 kHz FLAC file, the DAC was opened as 24-bit/44.1 kHz
+  (the file's format, so unconverted), the app's volume of 54 put the DAC at 54% on
+  both channels, and the player used about 1% of one CPU core
+- AirPlay from a Mac (as the Mac's system sound output) plays at 44.1 kHz. The audio
+  arrived as a steady stream of about 150 UDP packets a second at 600-710 kbps, which
+  is what AirPlay's lossless real-time mode looks like; the audio data itself was not
+  inspected.
+
+Notes from that session: the DAC's volume was at 100% after power-on (see Network
+player). When the app first took control, upmpdcli logged that its first volume and
+clear commands found the connection to MPD closed; playback was not affected.
+
+**Seen on r7 (2026-11-14), not repeated on r9:**
+
+- LDAC from an Android phone through the JM7MAX at 96 kHz / 32-bit: about 1,025 kbps
+  received (990 kbps of audio plus Bluetooth overhead), no lost packets, the decoder
+  using about 5% of one CPU core; one decode error early in the session, none after
+- Bluetooth volume: phone at 81%, DAC at 81% (-14 dB)
+- the dongle reset, with r8's script on the Pi running r7: told that the working
+  dongle had not started, the script switched its hub port off and on, the dongle
+  re-appeared 3.4 seconds later, loaded its firmware and was selected again
 
 **Seen on r6, not repeated since:**
 
 - Bluetooth audio from a Mac (AAC, 44.1 kHz)
 - SSH staying off with a password shorter than 8 characters
 - the UB500 failing its firmware download at power-on; r6's recovery (software
-  re-plug) failed three times and Streamer fell back to the built-in radio
+  re-plug) failed three times and Streamer fell back to the built-in radio. The hub
+  port reset, done by hand, brought the dongle up at the first try.
 - LDAC on the built-in radio (with a hand-installed receiver and a different LDAC
-  decoder than r7's): clean at 330 kbps, about a third of the data lost at 990 kbps
+  decoder than the image's): clean at 330 kbps, about a third of the data lost at
+  990 kbps
 
-**Not yet confirmed on hardware:** AirPlay and Spotify Connect playback on r6, r7 or
-r8 (both played on r5).
+**Not yet confirmed on hardware:**
 
-**Checks that do not need a Pi,** all passed on the r8 image: 20 host-side tests; unit
-files, filesystems, boot partition and no keys or passwords; the image's module
-loader, wpa_supplicant and LDAC library (round trip at 44.1 to 96 kHz); 41 of 41
-checks over three boots in QEMU.
+- Spotify Connect playback since r5
+- the dongle reset after a real failed start, which cannot be forced
+- the network player with a streaming service, an HTTPS stream, or a file above
+  44.1 kHz
+
+**Checks that do not need a Pi,** all passed on the r9 image:
+
+- 21 host-side tests of the scripts and settings
+- unit files, filesystems, boot partition, no keys or passwords; the image's module
+  loader, wpa_supplicant and LDAC library (round trip at 44.1 to 96 kHz)
+- 51 of 51 checks over three boots in QEMU. For the network player: found by a UPnP
+  search as "Streamer"; MPD and upmpdcli run as their own users and MPD is not
+  reachable from the network; UPnP volume 40, 75 and 100 set the sound card to 40%,
+  75% and 100% on both channels; a 16-bit/48 kHz FLAC file sent by URL plays to its
+  end with the sound card opened in that format; of the 576,000 sample frames of the
+  file, 496,225 were recorded at the emulated sound card and every one is identical
+  to the file (the emulator lost the rest).
 
 Known cosmetic issue: the status page shows non-ASCII characters in a Bluetooth device
 name as escape codes (for example `\342\200\231` for a curly apostrophe).
